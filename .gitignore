@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Production builds
+dist/
+dist-electron/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Sensitive User Spreadsheets & Excel Files
+*.xlsx
+*.xls
+*.csv
+Assets Liabilities Details FY 23-24.xlsx
+
+# System & IDE files
+.DS_Store
+*.log
+.vscode/
+.idea/
