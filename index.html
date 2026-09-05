@@ -10,8 +10,21 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="./assets/index-iw8qTGhq.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-RIFEVg6s.css">
+    <script>
+      (function() {
+        try {
+          var savedTheme = localStorage.getItem('family_vault_theme') || 'midnight';
+          document.documentElement.setAttribute('data-theme', savedTheme);
+          if (savedTheme === 'nordic') {
+            document.documentElement.classList.remove('dark');
+          } else {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-C5v5ZgUQ.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-lDV5nyy1.css">
   </head>
   <body>
     <div id="root"></div>
