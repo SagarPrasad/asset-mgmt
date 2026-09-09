@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS public.bank_accounts (
     customer_id TEXT,
     branch TEXT,
     netbanking_user TEXT,
+    netbanking_password TEXT,
+    pin_hint TEXT,
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(user_id, bank_name, account_number)
@@ -75,6 +77,9 @@ CREATE TABLE IF NOT EXISTS public.investments (
     account_identifier TEXT, -- PRAN, UAN, Demat A/C No
     cost_value NUMERIC(15, 2) DEFAULT 0.00,
     current_value NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+    login_user TEXT,
+    login_password TEXT,
+    pin_hint TEXT,
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(user_id, institution)

@@ -93,6 +93,82 @@ export const EditAssetModal = ({
     return {};
   });
 
+  React.useEffect(() => {
+    if (!item) return;
+    if (assetType === 'bank') {
+      const snap = item.snapshots?.[activeFy?.id] || { balance: 0, interest_acquired: 0, investments_linked: 0 };
+      setFormData({
+        bank_name: item.bank_name || '',
+        account_type: item.account_type || '',
+        account_number: item.account_number || '',
+        customer_id: item.customer_id || '',
+        netbanking_user: item.netbanking_user || '',
+        netbanking_password: item.netbanking_password || '',
+        pin_hint: item.pin_hint || '',
+        branch: item.branch || '',
+        balance: snap.balance || 0,
+        interest_acquired: snap.interest_acquired || 0
+      });
+    } else if (assetType === 'investment') {
+      setFormData({
+        institution: item.institution || '',
+        category: item.category || '',
+        account_identifier: item.account_identifier || '',
+        login_user: item.login_user || '',
+        login_password: item.login_password || '',
+        pin_hint: item.pin_hint || '',
+        current_value: item.values?.[activeFy?.id] ?? item.current_value ?? 0,
+        notes: item.notes || ''
+      });
+    } else if (assetType === 'insurance') {
+      setFormData({
+        provider: item.provider || '',
+        plan_name: item.plan_name || '',
+        policy_no: item.policy_no || '',
+        sum_insured: item.sum_insured || 0,
+        annual_premium: item.annual_premium || 0,
+        premium_date: item.premium_date || '',
+        payment_mode: item.payment_mode || '',
+        status: item.status || 'Active',
+        notes: item.notes || ''
+      });
+    } else if (assetType === 'property') {
+      setFormData({
+        title: item.title || '',
+        description: item.description || '',
+        premises: item.premises || '',
+        door_no: item.door_no || '',
+        road: item.road || '',
+        area: item.area || '',
+        city: item.city || '',
+        state: item.state || '',
+        pincode: item.pincode || '',
+        cost_amount: item.cost_amount || 0,
+        current_valuation: item.current_valuation || 0,
+        co_ownership: item.co_ownership || ''
+      });
+    } else if (assetType === 'movable') {
+      setFormData({
+        item_name: item.item_name || '',
+        category: item.category || '',
+        year_of_purchase: item.year_of_purchase || '',
+        original_cost: item.original_cost || 0,
+        current_value: item.current_value || 0,
+        status: item.status || 'Active',
+        notes: item.notes || ''
+      });
+    } else if (assetType === 'liability') {
+      setFormData({
+        title: item.title || '',
+        category: item.category || '',
+        amount: item.amount || 0,
+        payment_source: item.payment_source || '',
+        reminder_schedule: item.reminder_schedule || '',
+        notes: item.notes || ''
+      });
+    }
+  }, [item, activeFy, assetType]);
+
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };

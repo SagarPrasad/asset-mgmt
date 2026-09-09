@@ -159,15 +159,17 @@ export const loadInitialData = async (user, masterPassword) => {
                 };
               });
 
-            // Extract PIN Hint & Netbanking Password from columns or packed notes
+            // Extract PIN Hint, Netbanking Username & Password from columns or packed notes
             let pinHint = b.pin_hint || '';
             let rawNetPass = b.netbanking_password || '';
+            let netUser = b.netbanking_user || '';
             let bankNotes = b.notes || '';
-            if (bankNotes && typeof bankNotes === 'string' && bankNotes.startsWith('{')) {
+            if (bankNotes && typeof bankNotes === 'string' && bankNotes.startsWith('{') && bankNotes.includes('}')) {
               try {
                 const parsed = JSON.parse(bankNotes);
                 if (!pinHint && parsed.pin_hint) pinHint = parsed.pin_hint;
                 if (!rawNetPass && parsed.netbanking_password) rawNetPass = parsed.netbanking_password;
+                if (!netUser && parsed.netbanking_user) netUser = parsed.netbanking_user;
                 if (parsed.notes !== undefined) bankNotes = parsed.notes;
               } catch {}
             }
@@ -179,7 +181,7 @@ export const loadInitialData = async (user, masterPassword) => {
               member_id: resolvedMemberId,
               account_number: accNum,
               customer_id: custId,
-              netbanking_user: b.netbanking_user || '',
+              netbanking_user: netUser || '',
               netbanking_password: netbankingPassword || '',
               pin_hint: pinHint || '',
               notes: bankNotes || '',
@@ -195,7 +197,7 @@ export const loadInitialData = async (user, masterPassword) => {
         for (const b of rawDecryptedBanks) {
           const normBank = (b.bank_name || '').trim().toLowerCase();
           const normAcc = (b.account_number || '').trim().slice(-6);
-          const key = `${normBank}_${normAcc}`;
+          const key = b.id && isValidUuid(b.id) ? b.id : `${normBank}_${normAcc}`;
           if (!seenBanks.has(key)) {
             seenBanks.set(key, b);
             dedupedBanks.push(b);
@@ -206,6 +208,7 @@ export const loadInitialData = async (user, masterPassword) => {
               ...(existing.snapshots || {}),
               ...(b.snapshots || {})
             };
+            if (!existing.netbanking_user && b.netbanking_user) existing.netbanking_user = b.netbanking_user;
             if (!existing.pin_hint && b.pin_hint) existing.pin_hint = b.pin_hint;
             if (!existing.netbanking_password && b.netbanking_password) existing.netbanking_password = b.netbanking_password;
             if (!existing.notes && b.notes) existing.notes = b.notes;
@@ -214,7 +217,30 @@ export const loadInitialData = async (user, masterPassword) => {
 
         // Defensive fallback: if bank accounts table was empty, pull clean bank accounts from workbook
         const cleanWorkbook = getCleanWorkbookData();
-        const finalBanks = dedupedBanks.length > 0 ? dedupedBanks : cleanWorkbook.bankAccounts;
+        const baseBanks = dedupedBanks.length > 0 ? dedupedBanks : cleanWorkbook.bankAccounts;
+
+        // Defensive merge with local storage cache to ensure freshly saved credentials are never wiped on instant refresh
+        const cachedRaw = localStorage.getItem(getStorageKey(user?.id));
+        if (cachedRaw) {
+          try {
+            const cachedParsed = JSON.parse(cachedRaw);
+            if (Array.isArray(cachedParsed?.bankAccounts)) {
+              for (const fb of baseBanks) {
+                const localMatch = cachedParsed.bankAccounts.find(lb =>
+                  (lb.id && fb.id && lb.id === fb.id) ||
+                  (lb.bank_name === fb.bank_name && lb.account_number && fb.account_number &&
+                   lb.account_number.slice(-6) === fb.account_number.slice(-6))
+                );
+                if (localMatch) {
+                  if (!fb.netbanking_user && localMatch.netbanking_user) fb.netbanking_user = localMatch.netbanking_user;
+                  if (!fb.pin_hint && localMatch.pin_hint) fb.pin_hint = localMatch.pin_hint;
+                  if (!fb.netbanking_password && localMatch.netbanking_password) fb.netbanking_password = localMatch.netbanking_password;
+                }
+              }
+            }
+          } catch {}
+        }
+        const finalBanks = baseBanks;
 
         // 3. Decrypt & Deduplicate Investments (Retirement / Fixed)
         const decryptedInvestments = await Promise.all(
@@ -233,12 +259,14 @@ export const loadInitialData = async (user, masterPassword) => {
 
             let pinHint = inv.pin_hint || '';
             let rawLoginPass = inv.login_password || '';
+            let loginUser = inv.login_user || '';
             let invNotes = inv.notes || '';
             if (invNotes && typeof invNotes === 'string' && invNotes.startsWith('{')) {
               try {
                 const parsed = JSON.parse(invNotes);
                 if (!pinHint && parsed.pin_hint) pinHint = parsed.pin_hint;
                 if (!rawLoginPass && parsed.login_password) rawLoginPass = parsed.login_password;
+                if (!loginUser && parsed.login_user) loginUser = parsed.login_user;
                 if (parsed.notes !== undefined) invNotes = parsed.notes;
               } catch {}
             }
@@ -249,7 +277,7 @@ export const loadInitialData = async (user, masterPassword) => {
               ...inv,
               member_id: resolvedMemberId,
               account_identifier: accId,
-              login_user: inv.login_user || '',
+              login_user: loginUser || '',
               login_password: loginPassword || '',
               pin_hint: pinHint || '',
               notes: invNotes || '',
@@ -668,73 +696,127 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
       const memberId = getSupabaseMemberId(b, 'bank');
 
       const matchedExisting = decryptedExistingBanks.find((eb) => {
+        if (b.id && isValidUuid(b.id) && eb.id === b.id) return true;
         if (eb.bank_name !== b.bank_name) return false;
         if (b.account_number && eb.plainAcc) {
           return eb.plainAcc.slice(-6) === b.account_number.slice(-6);
         }
-        return true;
+        return false;
       });
 
       let bankRecordId = null;
 
-      // Pack pin_hint & netbanking_password into notes as a resilient fallback
+      // Pack pin_hint, netbanking_user & netbanking_password into notes as a resilient fallback
       const packedNotes = JSON.stringify({
         notes: b.notes || '',
         pin_hint: b.pin_hint || '',
+        netbanking_user: b.netbanking_user || '',
         netbanking_password: encNetPass || ''
       });
 
-      const bankPayload = {
-        bank_name: b.bank_name,
-        account_type: b.account_type,
-        account_number: encAcc,
-        customer_id: encCust,
-        branch: b.branch || '',
-        netbanking_user: b.netbanking_user || '',
-        member_id: memberId,
-        notes: packedNotes
-      };
-
       if (matchedExisting) {
         bankRecordId = matchedExisting.id;
-        try {
+
+        // Tier 1: Update with dedicated columns
+        let updateRes = await supabase.from('bank_accounts').update({
+          bank_name: b.bank_name,
+          account_type: b.account_type,
+          account_number: encAcc,
+          customer_id: encCust,
+          branch: b.branch || '',
+          netbanking_user: b.netbanking_user || '',
+          pin_hint: b.pin_hint || '',
+          netbanking_password: encNetPass,
+          member_id: memberId,
+          notes: packedNotes
+        }).eq('id', bankRecordId).select();
+
+        // Tier 2: If custom columns failed (e.g. pin_hint / netbanking_password missing)
+        if (updateRes.error) {
+          updateRes = await supabase.from('bank_accounts').update({
+            bank_name: b.bank_name,
+            account_type: b.account_type,
+            account_number: encAcc,
+            customer_id: encCust,
+            branch: b.branch || '',
+            netbanking_user: b.netbanking_user || '',
+            member_id: memberId,
+            notes: packedNotes
+          }).eq('id', bankRecordId).select();
+        }
+
+        // Tier 3: If netbanking_user or branch column also missing from older schema
+        if (updateRes.error) {
+          updateRes = await supabase.from('bank_accounts').update({
+            bank_name: b.bank_name,
+            account_type: b.account_type,
+            account_number: encAcc,
+            customer_id: encCust,
+            member_id: memberId,
+            notes: packedNotes
+          }).eq('id', bankRecordId).select();
+        }
+
+        // Tier 4: Minimal update
+        if (updateRes.error) {
           await supabase.from('bank_accounts').update({
-            ...bankPayload,
-            pin_hint: b.pin_hint || '',
-            netbanking_password: encNetPass
+            bank_name: b.bank_name,
+            notes: packedNotes
           }).eq('id', bankRecordId);
-        } catch {
-          await supabase.from('bank_accounts').update(bankPayload).eq('id', bankRecordId);
         }
 
         const duplicateRows = decryptedExistingBanks.filter(
           eb => eb.id !== bankRecordId && eb.bank_name === b.bank_name &&
-          (!b.account_number || !eb.plainAcc || eb.plainAcc.slice(-6) === b.account_number.slice(-6))
+          b.account_number && eb.plainAcc && eb.plainAcc.slice(-6) === b.account_number.slice(-6)
         );
         for (const dup of duplicateRows) {
           await supabase.from('bank_snapshots').delete().eq('bank_account_id', dup.id);
           await supabase.from('bank_accounts').delete().eq('id', dup.id);
         }
       } else {
-        let insertedBank = null;
-        try {
-          const res = await supabase.from('bank_accounts').insert({
-            ...bankPayload,
-            pin_hint: b.pin_hint || '',
-            netbanking_password: encNetPass,
+        // Insert new bank account with tier fallbacks
+        let insertRes = await supabase.from('bank_accounts').insert({
+          bank_name: b.bank_name,
+          account_type: b.account_type,
+          account_number: encAcc,
+          customer_id: encCust,
+          branch: b.branch || '',
+          netbanking_user: b.netbanking_user || '',
+          pin_hint: b.pin_hint || '',
+          netbanking_password: encNetPass,
+          member_id: memberId,
+          notes: packedNotes,
+          user_id: userId
+        }).select().single();
+
+        if (insertRes.error) {
+          insertRes = await supabase.from('bank_accounts').insert({
+            bank_name: b.bank_name,
+            account_type: b.account_type,
+            account_number: encAcc,
+            customer_id: encCust,
+            branch: b.branch || '',
+            netbanking_user: b.netbanking_user || '',
+            member_id: memberId,
+            notes: packedNotes,
             user_id: userId
           }).select().single();
-          insertedBank = res.data;
-        } catch {
-          const res = await supabase.from('bank_accounts').insert({
-            ...bankPayload,
-            user_id: userId
-          }).select().single();
-          insertedBank = res.data;
         }
 
-        if (insertedBank) {
-          bankRecordId = insertedBank.id;
+        if (insertRes.error) {
+          insertRes = await supabase.from('bank_accounts').insert({
+            bank_name: b.bank_name,
+            account_type: b.account_type,
+            account_number: encAcc,
+            customer_id: encCust,
+            member_id: memberId,
+            notes: packedNotes,
+            user_id: userId
+          }).select().single();
+        }
+
+        if (insertRes.data) {
+          bankRecordId = insertRes.data.id;
         }
       }
 
@@ -766,8 +848,8 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
       const currentPremises = new Set(data.immovableProperties.map(p => (p.premises || p.title || '').toLowerCase().trim()).filter(Boolean));
       const staleProps = existingProps.filter(ex => {
         const idMatch = currentIds.has(ex.id);
-        const premisesMatch = currentPremises.has((ex.premises || ex.title || '').toLowerCase().trim());
-        return !idMatch && !premisesMatch;
+        const premMatch = currentPremises.has((ex.premises || ex.title || '').toLowerCase().trim());
+        return !idMatch && !premMatch;
       });
       for (const stale of staleProps) {
         await supabase.from('immovable_properties').delete().eq('user_id', userId).eq('id', stale.id);
@@ -777,14 +859,14 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
     for (const p of data.immovableProperties) {
       const memberId = getSupabaseMemberId(p, 'property');
       const propPayload = {
+        premises: p.premises || p.title,
+        title: p.title || p.premises,
         description: p.description,
-        premises: p.premises,
         door_no: p.door_no,
         road: p.road,
         area: p.area,
         city: p.city,
         state: p.state,
-        country: p.country,
         pincode: p.pincode,
         cost_amount: Number(p.cost_amount || 0),
         current_valuation: Number(p.current_valuation || 0),
@@ -799,7 +881,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
     }
   }
 
-  // 5. Sync Investments (EPFO, NPS, Bonds) with automated pruning
+  // 5. Sync Investments & Assets with automated pruning
   if (Array.isArray(data.investments)) {
     const { data: existingInvs } = await supabase
       .from('investments')
@@ -827,6 +909,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
       const packedNotes = JSON.stringify({
         notes: inv.notes || '',
         pin_hint: inv.pin_hint || '',
+        login_user: inv.login_user || '',
         login_password: encLoginPass || ''
       });
 
@@ -838,6 +921,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
         current_value: Number(inv.values?.fy_25_26 || inv.values?.fy_24_25 || inv.values?.fy_23_24 || inv.current_value || 0),
         login_user: inv.login_user || '',
         login_password: encLoginPass,
+        pin_hint: inv.pin_hint || '',
         notes: packedNotes,
         member_id: memberId,
         user_id: userId
@@ -845,9 +929,9 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
       if (inv.id && isValidUuid(inv.id)) {
         invPayload.id = inv.id;
       }
-      try {
-        await supabase.from('investments').upsert(invPayload, { onConflict: 'user_id,institution' });
-      } catch {
+      let invRes = await supabase.from('investments').upsert(invPayload, { onConflict: 'user_id,institution' });
+      if (invRes.error) {
+        delete invPayload.pin_hint;
         delete invPayload.login_user;
         delete invPayload.login_password;
         await supabase.from('investments').upsert(invPayload, { onConflict: 'user_id,institution' });
