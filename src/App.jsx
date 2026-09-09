@@ -245,8 +245,9 @@ export function App() {
   };
 
   // Action Handlers
-  const handleOpenAddModal = (type = 'bank') => {
+  const handleOpenAddModal = (type = 'bank', category = null) => {
     setAddModalType(type);
+    setAddModalCategory(category);
     setIsAddModalOpen(true);
   };
 
@@ -427,7 +428,7 @@ export function App() {
       {/* Sub Navbar with FY & Member Switcher and + Next FY button */}
       <SubNavbar
         financialYears={data.financialYears || []}
-        activeFyId={activeFyId}
+        activeFyId={activeFy.id}
         onSelectFy={setActiveFyId}
         members={data.members || []}
         activeMemberId={activeMemberId}
@@ -480,6 +481,7 @@ export function App() {
           <ScheduleALView
             data={data}
             activeFy={activeFy}
+            activeMemberId={activeMemberId}
             privacyMode={privacyMode}
           />
         )}
@@ -530,6 +532,7 @@ export function App() {
         {activeTab === 'properties' && (
           <PropertySection
             data={data}
+            activeMemberId={activeMemberId}
             privacyMode={privacyMode}
             onOpenAddModal={handleOpenAddModal}
             onEditAsset={handleOpenEditAsset}
@@ -551,6 +554,7 @@ export function App() {
         {activeTab === 'liabilities' && (
           <LiabilitySection
             data={data}
+            activeMemberId={activeMemberId}
             privacyMode={privacyMode}
             onOpenAddModal={handleOpenAddModal}
             onEditAsset={handleOpenEditAsset}
@@ -577,12 +581,18 @@ export function App() {
       {/* Add Asset Modal */}
       <AddAssetModal
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
+        onClose={() => {
+          setIsAddModalOpen(false);
+          setAddModalCategory(null);
+        }}
         initialType={addModalType}
+        initialCategory={addModalCategory}
+        activeMemberId={activeMemberId}
         data={data}
         setData={setData}
         activeFy={activeFy}
         user={user}
+        masterPassword={masterPassword}
       />
 
       {/* Add Next Financial Year Modal */}

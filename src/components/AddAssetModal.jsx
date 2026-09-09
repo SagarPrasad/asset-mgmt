@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, PlusCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, PlusCircle, CreditCard, Calendar, Building2, Landmark, Percent, ShieldCheck } from 'lucide-react';
 import { saveLocalData, syncDataToSupabase } from '../services/dataService';
 import { getSupabaseClient } from '../lib/supabaseClient';
 
@@ -7,20 +7,27 @@ export const AddAssetModal = ({
   isOpen,
   onClose,
   initialType = 'bank',
+  initialCategory = null,
+  activeMemberId = 'all',
   data,
   setData,
   activeFy,
-  user
+  user,
+  masterPassword
 }) => {
   if (!isOpen) return null;
+
+  const defaultMemberId = (activeMemberId && activeMemberId !== 'all')
+    ? activeMemberId
+    : (data?.members?.[0]?.id || '');
 
   const [assetType, setAssetType] = useState(initialType);
   const [formData, setFormData] = useState({
     title: '',
-    member_id: data.members[0]?.id || '',
+    member_id: defaultMemberId,
     amount: '',
     notes: '',
-    category: '',
+    category: initialCategory || (initialType === 'liability' ? 'Loans & Liabilities' : ''),
     account_number: '',
     provider: '',
     policy_no: '',
@@ -28,8 +35,20 @@ export const AddAssetModal = ({
     premium: '',
     city: 'Bangalore',
     cost: '',
-    year: '2024'
+    year: '2024',
+    payment_source: '',
+    reminder_schedule: 'Monthly',
+    co_ownership: 'Individual'
   });
+
+  useEffect(() => {
+    setAssetType(initialType);
+    setFormData(prev => ({
+      ...prev,
+      member_id: defaultMemberId,
+      category: initialCategory || (initialType === 'liability' ? 'Loans & Liabilities' : '')
+    }));
+  }, [initialType, initialCategory, defaultMemberId]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -56,7 +75,7 @@ export const AddAssetModal = ({
           }
         }
       };
-      updated.bankAccounts = [newAccount, ...updated.bankAccounts];
+      updated.bankAccounts = [newAccount, ...(updated.bankAccounts || [])];
     } else if (assetType === 'investment') {
       const newInv = {
         id: `inv_${Date.now()}`,
@@ -69,7 +88,7 @@ export const AddAssetModal = ({
         },
         notes: formData.notes
       };
-      updated.investments = [newInv, ...updated.investments];
+      updated.investments = [newInv, ...(updated.investments || [])];
     } else if (assetType === 'insurance') {
       const newPolicy = {
         id: `ins_${Date.now()}`,
@@ -82,21 +101,22 @@ export const AddAssetModal = ({
         status: 'Active',
         notes: formData.notes
       };
-      updated.insurancePolicies = [newPolicy, ...updated.insurancePolicies];
+      updated.insurancePolicies = [newPolicy, ...(updated.insurancePolicies || [])];
     } else if (assetType === 'property') {
       const newProp = {
         id: `prop_${Date.now()}`,
+        member_id: formData.member_id,
         title: formData.title,
         description: formData.category || 'Self Occupied',
         premises: formData.title,
         city: formData.city,
         state: 'Karnataka',
         country: 'India',
-        cost_amount: Number(formData.cost || 0),
-        current_valuation: Number(formData.cost || 0),
-        co_ownership: 'Individual'
+        cost_amount: Number(formData.cost || formData.amount || 0),
+        current_valuation: Number(formData.amount || formData.cost || 0),
+        co_ownership: formData.co_ownership || 'Individual'
       };
-      updated.immovableProperties = [newProp, ...updated.immovableProperties];
+      updated.immovableProperties = [newProp, ...(updated.immovableProperties || [])];
     } else if (assetType === 'movable') {
       const newMovable = {
         id: `mov_${Date.now()}`,
@@ -104,29 +124,30 @@ export const AddAssetModal = ({
         category: formData.category || 'Vehicles / Boats etc.',
         item_name: formData.title,
         year_of_purchase: Number(formData.year || 2024),
-        original_cost: Number(formData.cost || 0),
+        original_cost: Number(formData.cost || formData.amount || 0),
         current_value: Number(formData.amount || formData.cost || 0),
         status: 'Active',
         notes: formData.notes
       };
-      updated.movableAssets = [newMovable, ...updated.movableAssets];
+      updated.movableAssets = [newMovable, ...(updated.movableAssets || [])];
     } else if (assetType === 'liability') {
       const newLiability = {
         id: `liab_${Date.now()}`,
+        member_id: formData.member_id,
         category: formData.category || 'Loans & Liabilities',
         title: formData.title,
         amount: Number(formData.amount || 0),
-        payment_source: formData.notes,
-        reminder_schedule: 'Monthly',
-        notes: formData.notes
+        payment_source: formData.payment_source || formData.notes || '',
+        reminder_schedule: formData.reminder_schedule || 'Monthly',
+        notes: formData.notes || ''
       };
-      updated.liabilitiesAndExpenses = [newLiability, ...updated.liabilitiesAndExpenses];
+      updated.liabilitiesAndExpenses = [newLiability, ...(updated.liabilitiesAndExpenses || [])];
     }
 
     saveLocalData(updated, user);
     setData(updated);
     if (getSupabaseClient() && user) {
-      syncDataToSupabase(updated, user).catch(err => console.warn('Supabase sync background notice:', err));
+      syncDataToSupabase(updated, user, masterPassword).catch(err => console.warn('Supabase sync background notice:', err));
     }
     onClose();
   };
@@ -146,36 +167,75 @@ export const AddAssetModal = ({
 
         {/* Asset Type Selector */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', overflowX: 'auto', paddingBottom: '0.25rem' }}>
-          {['bank', 'investment', 'insurance', 'property', 'movable', 'liability'].map((type) => (
+          {[
+            { id: 'bank', label: 'Bank Account' },
+            { id: 'investment', label: 'Investment' },
+            { id: 'insurance', label: 'Insurance' },
+            { id: 'property', label: 'Property' },
+            { id: 'movable', label: 'Movable Asset' },
+            { id: 'liability', label: 'Liability / Outflow' }
+          ].map((type) => (
             <button
-              key={type}
+              key={type.id}
               type="button"
-              onClick={() => setAssetType(type)}
-              className={`fy-pill ${assetType === type ? 'active' : ''}`}
-              style={{ textTransform: 'capitalize' }}
+              onClick={() => {
+                setAssetType(type.id);
+                if (type.id === 'liability' && !formData.category) {
+                  setFormData(prev => ({ ...prev, category: 'Loans & Liabilities' }));
+                }
+              }}
+              className={`fy-pill ${assetType === type.id ? 'active' : ''}`}
             >
-              {type}
+              {type.label}
             </button>
           ))}
         </div>
 
         <form onSubmit={handleSubmit}>
-          {/* Owner Family Member */}
+          {/* Owner Family Member / Entity Selector */}
           <div className="form-group">
-            <label className="form-label">Family Member / Owner</label>
+            <label className="form-label">Family Member / Entity Owner</label>
             <select
               name="member_id"
               value={formData.member_id}
               onChange={handleChange}
               className="form-input"
+              required
             >
-              {data.members.map((m) => (
+              {(data?.members || []).map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.name} ({m.relation})
+                  {m.name} ({m.relation || 'Member'})
                 </option>
               ))}
             </select>
           </div>
+
+          {/* Liability Sub-Category Selector */}
+          {assetType === 'liability' && (
+            <div className="form-group">
+              <label className="form-label">Category Type</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, category: 'Loans & Liabilities' })}
+                  className={`fy-pill ${formData.category !== 'Fixed Monthly Expenditure' ? 'active' : ''}`}
+                  style={{ padding: '0.625rem', textAlign: 'center', justifyContent: 'center' }}
+                >
+                  <CreditCard size={14} />
+                  <span>Loan / Liability</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, category: 'Fixed Monthly Expenditure' })}
+                  className={`fy-pill ${formData.category === 'Fixed Monthly Expenditure' ? 'active' : ''}`}
+                  style={{ padding: '0.625rem', textAlign: 'center', justifyContent: 'center' }}
+                >
+                  <Calendar size={14} />
+                  <span>Fixed Monthly Outflow</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Title / Name */}
           <div className="form-group">
@@ -183,9 +243,9 @@ export const AddAssetModal = ({
               {assetType === 'bank' && 'Bank Name (e.g. HDFC Bank)'}
               {assetType === 'investment' && 'Institution / Platform (e.g. Zerodha, EPFO)'}
               {assetType === 'insurance' && 'Plan Name (e.g. LIC Jeevan Anand)'}
-              {assetType === 'property' && 'Property Name / Premises (e.g. Skyline Apartments)'}
+              {assetType === 'property' && 'Property Title / Premises (e.g. Skyline Apartments)'}
               {assetType === 'movable' && 'Item / Asset Name (e.g. Gold Bullion, Honda City)'}
-              {assetType === 'liability' && 'Loan / Liability Title (e.g. Home Loan EMI)'}
+              {assetType === 'liability' && (formData.category === 'Fixed Monthly Expenditure' ? 'Outflow / Bill Name (e.g. House Rent, Maintenance)' : 'Loan / Liability Title (e.g. Home Loan EMI)')}
             </label>
             <input
               type="text"
@@ -194,17 +254,23 @@ export const AddAssetModal = ({
               value={formData.title}
               onChange={handleChange}
               className="form-input"
-              placeholder="Enter title or name..."
+              placeholder={assetType === 'liability' && formData.category === 'Fixed Monthly Expenditure' ? "e.g. Apartment Maintenance / Cloud Subscriptions" : "Enter title or name..."}
             />
           </div>
 
           {/* Amount / Balance */}
           <div className="form-group">
             <label className="form-label">
-              {assetType === 'bank' ? 'Balance on 31st March (INR)' : 'Current Value / Amount (INR)'}
+              {assetType === 'bank' && 'Balance on 31st March (INR)'}
+              {assetType === 'liability' && (formData.category === 'Fixed Monthly Expenditure' ? 'Monthly Outflow Amount (INR)' : 'Total Outstanding Loan Amount (INR)')}
+              {assetType === 'property' && 'Acquisition Cost / Valuation (INR)'}
+              {assetType === 'movable' && 'Current Value / Original Cost (INR)'}
+              {assetType === 'investment' && 'Valuation / Invested Amount (INR)'}
+              {assetType === 'insurance' && 'Sum Insured (INR)'}
             </label>
             <input
               type="number"
+              step="any"
               name="amount"
               required
               value={formData.amount}
@@ -213,6 +279,34 @@ export const AddAssetModal = ({
               placeholder="e.g. 250000"
             />
           </div>
+
+          {/* Liability Specific Fields (Payment Source & Reminder Schedule) */}
+          {assetType === 'liability' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="form-group">
+                <label className="form-label">Payment Source (Bank A/C / Card)</label>
+                <input
+                  type="text"
+                  name="payment_source"
+                  value={formData.payment_source}
+                  onChange={handleChange}
+                  className="form-input"
+                  placeholder="e.g. HDFC Salary A/c or Credit Card"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Schedule / Due Date</label>
+                <input
+                  type="text"
+                  name="reminder_schedule"
+                  value={formData.reminder_schedule}
+                  onChange={handleChange}
+                  className="form-input"
+                  placeholder="e.g. 5th every month / Monthly"
+                />
+              </div>
+            </div>
+          )}
 
           {/* Account Number / Identifier */}
           {(assetType === 'bank' || assetType === 'investment') && (
@@ -226,6 +320,36 @@ export const AddAssetModal = ({
                 className="form-input"
                 placeholder="e.g. 50100788835243"
               />
+            </div>
+          )}
+
+          {/* Property Specific Fields */}
+          {assetType === 'property' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="form-group">
+                <label className="form-label">City / Location</label>
+                <input
+                  type="text"
+                  name="city"
+                  value={formData.city}
+                  onChange={handleChange}
+                  className="form-input"
+                  placeholder="e.g. Bangalore"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Ownership Type</label>
+                <select
+                  name="co_ownership"
+                  value={formData.co_ownership}
+                  onChange={handleChange}
+                  className="form-input"
+                >
+                  <option value="Individual">Individual Sole Owner</option>
+                  <option value="HUF">HUF Owned</option>
+                  <option value="Co-Owned">Co-Owned with Spouse</option>
+                </select>
+              </div>
             </div>
           )}
 
@@ -245,23 +369,26 @@ export const AddAssetModal = ({
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div className="form-group">
-                  <label className="form-label">Sum Insured (INR)</label>
-                  <input
-                    type="number"
-                    name="sum_insured"
-                    value={formData.sum_insured}
-                    onChange={handleChange}
-                    className="form-input"
-                  />
-                </div>
-                <div className="form-group">
                   <label className="form-label">Annual Premium (INR)</label>
                   <input
                     type="number"
+                    step="any"
                     name="premium"
                     value={formData.premium}
                     onChange={handleChange}
                     className="form-input"
+                    placeholder="e.g. 24000"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Insurance Provider</label>
+                  <input
+                    type="text"
+                    name="provider"
+                    value={formData.provider}
+                    onChange={handleChange}
+                    className="form-input"
+                    placeholder="e.g. LIC / HDFC Life"
                   />
                 </div>
               </div>
@@ -277,7 +404,7 @@ export const AddAssetModal = ({
               value={formData.notes}
               onChange={handleChange}
               className="form-input"
-              placeholder="Branch name, payment source, reminders..."
+              placeholder="Branch name, reminders, folio or notes..."
             />
           </div>
 

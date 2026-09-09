@@ -30,6 +30,17 @@ export const isValidUuid = (str) => {
 export const resolveMemberId = (item, members = [], itemType = 'bank') => {
   if (!members || members.length === 0) return item?.member_id || null;
 
+  // 0. Check packed JSON notes if present
+  if (item?.notes && typeof item.notes === 'string' && item.notes.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(item.notes);
+      if (parsed.member_id) {
+        const match = members.find(m => m.id === parsed.member_id);
+        if (match) return match.id;
+      }
+    } catch {}
+  }
+
   // 1. Direct ID match
   if (item?.member_id) {
     const directMatch = members.find(m => m.id === item.member_id);
@@ -47,7 +58,7 @@ export const resolveMemberId = (item, members = [], itemType = 'bank') => {
   for (const member of members) {
     const memFirst = (member.name || '').split(' ')[0].toLowerCase().trim();
     const isMemHuf = (member.name || '').toLowerCase().includes('huf');
-    const itemStr = `${item?.member_name || ''} ${item?.bank_name || ''} ${item?.notes || ''} ${item?.plan_name || ''}`.toLowerCase();
+    const itemStr = `${item?.member_name || ''} ${item?.bank_name || ''} ${item?.title || ''} ${item?.premises || ''} ${item?.description || ''} ${item?.lender || ''} ${item?.notes || ''} ${item?.plan_name || ''}`.toLowerCase();
     const isItemHuf = itemStr.includes('huf');
     if (isMemHuf !== isItemHuf) continue;
 
@@ -352,12 +363,24 @@ export const loadInitialData = async (user, masterPassword) => {
         }
 
         // 6. Properties & Movables with Member Resolution
-        const dedupedProps = (props || []).map(p => ({
-          ...p,
-          member_id: resolveMemberId(p, decryptedMembers, 'property'),
-          cost_amount: Number(p.cost_amount || 0),
-          current_valuation: Number(p.current_valuation || 0)
-        }));
+        const dedupedProps = (props || []).map(p => {
+          let pNotes = p.notes || '';
+          let memberId = p.member_id;
+          if (pNotes && typeof pNotes === 'string' && pNotes.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(pNotes);
+              if (!memberId && parsed.member_id) memberId = parsed.member_id;
+              if (parsed.notes !== undefined) pNotes = parsed.notes;
+            } catch {}
+          }
+          return {
+            ...p,
+            member_id: resolveMemberId({ ...p, member_id: memberId, notes: pNotes }, decryptedMembers, 'property'),
+            notes: pNotes,
+            cost_amount: Number(p.cost_amount || 0),
+            current_valuation: Number(p.current_valuation || 0)
+          };
+        });
 
         const dedupedMovables = (movs || []).map(m => ({
           ...m,
@@ -365,6 +388,37 @@ export const loadInitialData = async (user, masterPassword) => {
           original_cost: Number(m.original_cost || 0),
           current_value: Number(m.current_value || 0)
         }));
+
+        // 7. Liabilities & Expenses with Member Resolution & Outflow metadata
+        const dedupedLiabs = (liabs || []).map(l => {
+          let lNotes = l.notes || '';
+          let memberId = l.member_id;
+          let paymentSource = l.payment_source || '';
+          let schedule = l.reminder_schedule || l.schedule || '';
+          let category = l.category || '';
+          if (lNotes && typeof lNotes === 'string' && lNotes.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(lNotes);
+              if (!memberId && parsed.member_id) memberId = parsed.member_id;
+              if (!paymentSource && parsed.payment_source) paymentSource = parsed.payment_source;
+              if (!schedule && parsed.schedule) schedule = parsed.schedule;
+              if (!category && parsed.category) category = parsed.category;
+              if (parsed.notes !== undefined) lNotes = parsed.notes;
+            } catch {}
+          }
+          return {
+            ...l,
+            member_id: resolveMemberId({ ...l, member_id: memberId, notes: lNotes }, decryptedMembers, 'liability'),
+            category: category || l.category || 'Loans & Liabilities',
+            payment_source: paymentSource,
+            reminder_schedule: schedule,
+            schedule: schedule,
+            notes: lNotes,
+            amount: Number(l.amount || l.outstanding_balance || 0),
+            outstanding_balance: Number(l.outstanding_balance || l.amount || 0),
+            monthly_payment: Number(l.monthly_payment || 0)
+          };
+        });
 
         return {
           members: decryptedMembers,
@@ -375,7 +429,7 @@ export const loadInitialData = async (user, masterPassword) => {
           insurancePolicies: dedupedInsurance,
           immovableProperties: dedupedProps,
           movableAssets: dedupedMovables,
-          liabilitiesAndExpenses: liabs || []
+          liabilitiesAndExpenses: dedupedLiabs
         };
       } else {
         // No records in Supabase yet for this user.
@@ -858,6 +912,10 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
 
     for (const p of data.immovableProperties) {
       const memberId = getSupabaseMemberId(p, 'property');
+      const packedNotes = JSON.stringify({
+        notes: p.notes || '',
+        member_id: memberId || ''
+      });
       const propPayload = {
         premises: p.premises || p.title,
         title: p.title || p.premises,
@@ -871,13 +929,19 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
         cost_amount: Number(p.cost_amount || 0),
         current_valuation: Number(p.current_valuation || 0),
         co_ownership: p.co_ownership,
+        notes: packedNotes,
         member_id: memberId,
         user_id: userId
       };
       if (p.id && isValidUuid(p.id)) {
         propPayload.id = p.id;
       }
-      await supabase.from('immovable_properties').upsert(propPayload, { onConflict: 'user_id,premises' });
+      let propRes = await supabase.from('immovable_properties').upsert(propPayload, { onConflict: 'user_id,premises' });
+      if (propRes.error) {
+        delete propPayload.member_id;
+        delete propPayload.notes;
+        await supabase.from('immovable_properties').upsert(propPayload, { onConflict: 'user_id,premises' });
+      }
     }
   }
 
@@ -1096,19 +1160,32 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
     }
 
     for (const l of data.liabilitiesAndExpenses) {
+      const memberId = getSupabaseMemberId(l, 'liability');
+      const packedNotes = JSON.stringify({
+        notes: l.notes || '',
+        member_id: memberId || '',
+        category: l.category || '',
+        payment_source: l.payment_source || '',
+        schedule: l.schedule || l.reminder_schedule || ''
+      });
       const liabPayload = {
-        category: l.category,
+        category: l.category || 'Loans & Liabilities',
         title: l.title,
-        amount: Number(l.amount || 0),
-        payment_source: l.payment_source,
-        reminder_schedule: l.reminder_schedule,
-        notes: l.notes,
+        amount: Number(l.amount || l.outstanding_balance || 0),
+        payment_source: l.payment_source || '',
+        reminder_schedule: l.schedule || l.reminder_schedule || '',
+        notes: packedNotes,
+        member_id: memberId,
         user_id: userId
       };
       if (l.id && isValidUuid(l.id)) {
         liabPayload.id = l.id;
       }
-      await supabase.from('liabilities_expenses').upsert(liabPayload, { onConflict: 'user_id,title' });
+      let liabRes = await supabase.from('liabilities_expenses').upsert(liabPayload, { onConflict: 'user_id,title' });
+      if (liabRes.error) {
+        delete liabPayload.member_id;
+        await supabase.from('liabilities_expenses').upsert(liabPayload, { onConflict: 'user_id,title' });
+      }
     }
   }
 

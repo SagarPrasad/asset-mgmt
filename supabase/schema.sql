@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS public.insurance_policies (
 CREATE TABLE IF NOT EXISTS public.immovable_properties (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    member_id UUID REFERENCES public.family_members(id) ON DELETE SET NULL,
     description TEXT NOT NULL, -- Staying in this one, Rented, Under Construction
     premises TEXT NOT NULL, -- 'Premises / Apartment / Plot Name'
     door_no TEXT,
@@ -141,6 +142,7 @@ CREATE TABLE IF NOT EXISTS public.immovable_properties (
     cost_amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
     current_valuation NUMERIC(15, 2) DEFAULT 0.00,
     co_ownership TEXT, -- 'Co-Owned', 'Individual'
+    notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(user_id, premises)
 );
@@ -166,6 +168,7 @@ CREATE TABLE IF NOT EXISTS public.movable_assets (
 CREATE TABLE IF NOT EXISTS public.liabilities_expenses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    member_id UUID REFERENCES public.family_members(id) ON DELETE SET NULL,
     category TEXT NOT NULL, -- 'Loan', 'Fixed Monthly Expenditure', 'Yearly Expenditure'
     title TEXT NOT NULL, -- 'Car Loan EMI', 'Home Loan', 'Cloud Storage', 'Subscriptions'
     amount NUMERIC(15, 2) NOT NULL DEFAULT 0.00,

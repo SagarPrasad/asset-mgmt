@@ -57,6 +57,7 @@ export const EditAssetModal = ({
       };
     } else if (assetType === 'property') {
       return {
+        member_id: item.member_id || (data?.members?.[0]?.id || ''),
         title: item.title || '',
         description: item.description || '',
         premises: item.premises || '',
@@ -68,7 +69,7 @@ export const EditAssetModal = ({
         pincode: item.pincode || '',
         cost_amount: item.cost_amount || 0,
         current_valuation: item.current_valuation || 0,
-        co_ownership: item.co_ownership || ''
+        co_ownership: item.co_ownership || 'Individual'
       };
     } else if (assetType === 'movable') {
       return {
@@ -82,8 +83,9 @@ export const EditAssetModal = ({
       };
     } else if (assetType === 'liability') {
       return {
+        member_id: item.member_id || (data?.members?.[0]?.id || ''),
         title: item.title || '',
-        category: item.category || '',
+        category: item.category || 'Loans & Liabilities',
         amount: item.amount || 0,
         payment_source: item.payment_source || '',
         reminder_schedule: item.reminder_schedule || '',
@@ -134,6 +136,7 @@ export const EditAssetModal = ({
       });
     } else if (assetType === 'property') {
       setFormData({
+        member_id: item.member_id || (data?.members?.[0]?.id || ''),
         title: item.title || '',
         description: item.description || '',
         premises: item.premises || '',
@@ -145,7 +148,7 @@ export const EditAssetModal = ({
         pincode: item.pincode || '',
         cost_amount: item.cost_amount || 0,
         current_valuation: item.current_valuation || 0,
-        co_ownership: item.co_ownership || ''
+        co_ownership: item.co_ownership || 'Individual'
       });
     } else if (assetType === 'movable') {
       setFormData({
@@ -159,8 +162,9 @@ export const EditAssetModal = ({
       });
     } else if (assetType === 'liability') {
       setFormData({
+        member_id: item.member_id || (data?.members?.[0]?.id || ''),
         title: item.title || '',
-        category: item.category || '',
+        category: item.category || 'Loans & Liabilities',
         amount: item.amount || 0,
         payment_source: item.payment_source || '',
         reminder_schedule: item.reminder_schedule || '',
@@ -247,6 +251,7 @@ export const EditAssetModal = ({
         if (p.id === item.id) {
           return {
             ...p,
+            member_id: formData.member_id,
             title: formData.title,
             description: formData.description,
             premises: formData.premises,
@@ -284,6 +289,7 @@ export const EditAssetModal = ({
         if (l.id === item.id) {
           return {
             ...l,
+            member_id: formData.member_id,
             title: formData.title,
             category: formData.category,
             amount: Number(formData.amount || 0),
@@ -471,6 +477,23 @@ export const EditAssetModal = ({
           {assetType === 'property' && (
             <>
               <div className="form-group">
+                <label className="form-label">Family Member / Owner Entity</label>
+                <select
+                  name="member_id"
+                  value={formData.member_id}
+                  onChange={handleChange}
+                  className="form-input"
+                  required
+                >
+                  {(data?.members || []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.relation || 'Member'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
                 <label className="form-label">Property Title</label>
                 <input type="text" name="title" value={formData.title} onChange={handleChange} className="form-input" required />
               </div>
@@ -492,8 +515,17 @@ export const EditAssetModal = ({
                   <input type="text" name="city" value={formData.city} onChange={handleChange} className="form-input" required />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">State</label>
-                  <input type="text" name="state" value={formData.state} onChange={handleChange} className="form-input" />
+                  <label className="form-label">Ownership Type</label>
+                  <select
+                    name="co_ownership"
+                    value={formData.co_ownership}
+                    onChange={handleChange}
+                    className="form-input"
+                  >
+                    <option value="Individual">Individual Sole Owner</option>
+                    <option value="HUF">HUF Owned</option>
+                    <option value="Co-Owned">Co-Owned with Spouse</option>
+                  </select>
                 </div>
               </div>
 
@@ -540,24 +572,67 @@ export const EditAssetModal = ({
           {assetType === 'liability' && (
             <>
               <div className="form-group">
-                <label className="form-label">Liability / Commitment Title</label>
+                <label className="form-label">Family Member / Debtor Entity</label>
+                <select
+                  name="member_id"
+                  value={formData.member_id}
+                  onChange={handleChange}
+                  className="form-input"
+                  required
+                >
+                  {(data?.members || []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.relation || 'Member'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Category Type</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, category: 'Loans & Liabilities' })}
+                    className={`fy-pill ${formData.category !== 'Fixed Monthly Expenditure' ? 'active' : ''}`}
+                    style={{ padding: '0.625rem', textAlign: 'center', justifyContent: 'center' }}
+                  >
+                    <span>Loan / Liability</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, category: 'Fixed Monthly Expenditure' })}
+                    className={`fy-pill ${formData.category === 'Fixed Monthly Expenditure' ? 'active' : ''}`}
+                    style={{ padding: '0.625rem', textAlign: 'center', justifyContent: 'center' }}
+                  >
+                    <span>Fixed Monthly Outflow</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">
+                  {formData.category === 'Fixed Monthly Expenditure' ? 'Outflow / Bill Title' : 'Loan / Liability Title'}
+                </label>
                 <input type="text" name="title" value={formData.title} onChange={handleChange} className="form-input" required />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div className="form-group">
-                  <label className="form-label">Amount (INR)</label>
+                  <label className="form-label">
+                    {formData.category === 'Fixed Monthly Expenditure' ? 'Monthly Amount (INR)' : 'Outstanding Amount (INR)'}
+                  </label>
                   <input type="number" step="any" name="amount" value={formData.amount} onChange={handleChange} className="form-input" required />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Payment Source (Card / Bank)</label>
-                  <input type="text" name="payment_source" value={formData.payment_source} onChange={handleChange} className="form-input" />
+                  <input type="text" name="payment_source" value={formData.payment_source} onChange={handleChange} className="form-input" placeholder="e.g. HDFC Salary A/c" />
                 </div>
               </div>
 
               <div className="form-group">
                 <label className="form-label">Schedule / Reminder (e.g. 20th every month)</label>
-                <input type="text" name="reminder_schedule" value={formData.reminder_schedule} onChange={handleChange} className="form-input" />
+                <input type="text" name="reminder_schedule" value={formData.reminder_schedule} onChange={handleChange} className="form-input" placeholder="e.g. 20th every month" />
               </div>
             </>
           )}

@@ -573,6 +573,138 @@ body {
   border: 1px solid var(--accent-cyan);
 }
 
+/* Executive Navbar Enhancements */
+.nav-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nav-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border-glass);
+  margin: 0 0.25rem;
+}
+
+.nav-btn-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 36px;
+  padding: 0 0.8rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  background: var(--bg-btn-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-glass);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.nav-btn-compact:hover {
+  background: var(--bg-btn-secondary-hover);
+  border-color: var(--border-glass-bright);
+  transform: translateY(-1px);
+}
+
+.nav-btn-compact.active-privacy {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.4);
+  color: #fda4af;
+}
+
+.nav-btn-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-btn-secondary);
+  border: 1px solid var(--border-glass);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.nav-btn-icon:hover {
+  background: var(--bg-btn-secondary-hover);
+  color: var(--text-primary);
+  border-color: var(--border-glass-bright);
+  transform: translateY(-1px);
+}
+
+.nav-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 250px;
+  background: var(--bg-card-inner);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-glass-bright);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  padding: 0.5rem;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  animation: navFadeInDown 0.15s ease-out;
+}
+
+@keyframes navFadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.nav-dropdown-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+  width: 100%;
+}
+
+.nav-dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.user-profile-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 36px;
+  padding: 0 0.5rem 0 0.35rem;
+  border-radius: 999px;
+  background: var(--bg-btn-secondary);
+  border: 1px solid var(--border-glass);
+  transition: border-color 0.2s ease;
+}
+
+.user-profile-compact:hover {
+  border-color: var(--border-glass-bright);
+}
+
+
 /* Sub-Bar Filters: FY Selector & Member Switcher */
 .sub-bar {
   padding: 0.875rem 2rem;

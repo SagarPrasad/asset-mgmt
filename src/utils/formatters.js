@@ -118,6 +118,7 @@ export const calculateFinancialYearTotals = (data, fyId, memberFilterId = 'all')
   // 5. Liabilities (Loans)
   let liabilityTotal = 0;
   (data.liabilitiesAndExpenses || []).forEach(l => {
+    if (l.member_id && !matchesMember(l.member_id, memberFilterId, members)) return;
     if (l.category === 'Loans & Liabilities') {
       liabilityTotal += Number(l.amount || 0);
     }
