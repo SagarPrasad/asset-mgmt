@@ -26,8 +26,10 @@ export const AddAssetModal = ({
     title: '',
     member_id: defaultMemberId,
     amount: '',
+    interest_acquired: '',
+    branch: '',
     notes: '',
-    category: initialCategory || (initialType === 'liability' ? 'Loans & Liabilities' : ''),
+    category: initialCategory || (initialType === 'liability' ? 'Loans & Liabilities' : (initialType === 'bank' ? 'Savings Account' : '')),
     account_number: '',
     provider: '',
     policy_no: '',
@@ -46,7 +48,7 @@ export const AddAssetModal = ({
     setFormData(prev => ({
       ...prev,
       member_id: defaultMemberId,
-      category: initialCategory || (initialType === 'liability' ? 'Loans & Liabilities' : '')
+      category: initialCategory || (initialType === 'liability' ? 'Loans & Liabilities' : (initialType === 'bank' ? 'Savings Account' : ''))
     }));
   }, [initialType, initialCategory, defaultMemberId]);
 
@@ -66,11 +68,12 @@ export const AddAssetModal = ({
         account_type: formData.category || 'Savings Account',
         account_number: formData.account_number,
         customer_id: '',
-        branch: formData.notes,
+        branch: formData.branch || '',
+        notes: formData.notes || '',
         snapshots: {
           [activeFy.id]: {
             balance: Number(formData.amount || 0),
-            interest_acquired: 0,
+            interest_acquired: Number(formData.interest_acquired || 0),
             investments_linked: 0
           }
         }
@@ -210,6 +213,26 @@ export const AddAssetModal = ({
             </select>
           </div>
 
+          {/* Bank / Deposit Category Selector */}
+          {assetType === 'bank' && (
+            <div className="form-group">
+              <label className="form-label">Account / Deposit Type</label>
+              <select
+                name="category"
+                value={formData.category || 'Savings Account'}
+                onChange={handleChange}
+                className="form-input"
+              >
+                <option value="Fixed Deposit (FD)">Fixed Deposit (FD)</option>
+                <option value="Term Deposit">Term Deposit</option>
+                <option value="Recurring Deposit (RD)">Recurring Deposit (RD)</option>
+                <option value="Savings Account">Savings Account</option>
+                <option value="Salary Account">Salary Account</option>
+                <option value="Current Account">Current Account</option>
+              </select>
+            </div>
+          )}
+
           {/* Liability Sub-Category Selector */}
           {assetType === 'liability' && (
             <div className="form-group">
@@ -240,7 +263,7 @@ export const AddAssetModal = ({
           {/* Title / Name */}
           <div className="form-group">
             <label className="form-label">
-              {assetType === 'bank' && 'Bank Name (e.g. HDFC Bank)'}
+              {assetType === 'bank' && (formData.category?.includes('Deposit') || formData.category?.includes('FD') ? 'Bank / Institution (e.g. HDFC Bank, SBI)' : 'Bank Name (e.g. HDFC Bank)')}
               {assetType === 'investment' && 'Institution / Platform (e.g. Zerodha, EPFO)'}
               {assetType === 'insurance' && 'Plan Name (e.g. LIC Jeevan Anand)'}
               {assetType === 'property' && 'Property Title / Premises (e.g. Skyline Apartments)'}
@@ -254,14 +277,14 @@ export const AddAssetModal = ({
               value={formData.title}
               onChange={handleChange}
               className="form-input"
-              placeholder={assetType === 'liability' && formData.category === 'Fixed Monthly Expenditure' ? "e.g. Apartment Maintenance / Cloud Subscriptions" : "Enter title or name..."}
+              placeholder={assetType === 'bank' && (formData.category?.includes('Deposit') || formData.category?.includes('FD')) ? "e.g. HDFC Bank / SBI Term Deposit" : (assetType === 'liability' && formData.category === 'Fixed Monthly Expenditure' ? "e.g. Apartment Maintenance / Cloud Subscriptions" : "Enter title or name...")}
             />
           </div>
 
           {/* Amount / Balance */}
           <div className="form-group">
             <label className="form-label">
-              {assetType === 'bank' && 'Balance on 31st March (INR)'}
+              {assetType === 'bank' && (formData.category?.includes('Deposit') || formData.category?.includes('FD') ? 'Deposit Principal / Balance on 31st March (INR)' : 'Balance on 31st March (INR)')}
               {assetType === 'liability' && (formData.category === 'Fixed Monthly Expenditure' ? 'Monthly Outflow Amount (INR)' : 'Total Outstanding Loan Amount (INR)')}
               {assetType === 'property' && 'Acquisition Cost / Valuation (INR)'}
               {assetType === 'movable' && 'Current Value / Original Cost (INR)'}
@@ -279,6 +302,35 @@ export const AddAssetModal = ({
               placeholder="e.g. 250000"
             />
           </div>
+
+          {/* Bank & FD Interest Acquired & Branch Fields */}
+          {assetType === 'bank' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="form-group">
+                <label className="form-label">FY Interest Accrued / Earned (INR)</label>
+                <input
+                  type="number"
+                  step="any"
+                  name="interest_acquired"
+                  value={formData.interest_acquired}
+                  onChange={handleChange}
+                  className="form-input"
+                  placeholder="e.g. 18500 (Annual interest)"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Branch / IFSC (Optional)</label>
+                <input
+                  type="text"
+                  name="branch"
+                  value={formData.branch}
+                  onChange={handleChange}
+                  className="form-input"
+                  placeholder="e.g. Indiranagar Branch"
+                />
+              </div>
+            </div>
+          )}
 
           {/* Liability Specific Fields (Payment Source & Reminder Schedule) */}
           {assetType === 'liability' && (
@@ -311,14 +363,17 @@ export const AddAssetModal = ({
           {/* Account Number / Identifier */}
           {(assetType === 'bank' || assetType === 'investment') && (
             <div className="form-group">
-              <label className="form-label">Account Number / Demat ID / UAN</label>
+              <label className="form-label">
+                {assetType === 'bank' && (formData.category?.includes('Deposit') || formData.category?.includes('FD') ? 'Deposit Account Number / FD Certificate No.' : 'Account Number')}
+                {assetType === 'investment' && 'Account Number / Demat ID / UAN'}
+              </label>
               <input
                 type="text"
                 name="account_number"
                 value={formData.account_number}
                 onChange={handleChange}
                 className="form-input"
-                placeholder="e.g. 50100788835243"
+                placeholder={assetType === 'bank' && (formData.category?.includes('Deposit') || formData.category?.includes('FD')) ? "e.g. 50100788835243 or FD-987654" : "e.g. 50100788835243"}
               />
             </div>
           )}
@@ -404,7 +459,7 @@ export const AddAssetModal = ({
               value={formData.notes}
               onChange={handleChange}
               className="form-input"
-              placeholder="Branch name, reminders, folio or notes..."
+              placeholder={assetType === 'bank' && (formData.category?.includes('Deposit') || formData.category?.includes('FD')) ? "Maturity date, interest rate % (e.g. 7.25% p.a.), tenure, nominee..." : "Branch name, reminders, folio or notes..."}
             />
           </div>
 

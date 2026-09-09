@@ -51,11 +51,20 @@ export const BankSection = ({
             </div>
           </div>
           <button
-            onClick={() => onOpenAddModal('bank')}
-            className="btn-primary"
+            onClick={() => onOpenAddModal('bank', 'Savings Account')}
+            className="btn-secondary"
+            title="Add a Savings or Salary Account"
           >
             <PlusCircle size={15} />
-            <span>Add Account</span>
+            <span>+ Bank A/c</span>
+          </button>
+          <button
+            onClick={() => onOpenAddModal('bank', 'Fixed Deposit (FD)')}
+            className="btn-primary"
+            title="Add a Fixed Deposit (FD) or Term Deposit"
+          >
+            <PlusCircle size={15} />
+            <span>+ Add Fixed Deposit</span>
           </button>
         </div>
       </div>
@@ -77,6 +86,7 @@ export const BankSection = ({
             {filteredAccounts.map((account) => {
               const snapshot = account.snapshots?.[activeFy.id] || { balance: 0, interest_acquired: 0, investments_linked: 0 };
               const member = data.members?.find(m => m.id === account.member_id || matchesMember(account.member_id, m.id, data.members));
+              const isDeposit = (account.account_type || '').toLowerCase().includes('deposit') || (account.account_type || '').toLowerCase().includes('fd');
 
               return (
                 <tr key={account.id}>
@@ -85,12 +95,14 @@ export const BankSection = ({
                       <div style={{ width: 8, height: 8, borderRadius: '50%', background: member?.avatar_color || '#38bdf8' }}></div>
                       <div>
                         <div style={{ fontWeight: 600 }}>{account.bank_name}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{account.branch || 'Main Branch'}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                          {account.notes ? account.notes : (account.branch || 'Main Branch')}
+                        </div>
                       </div>
                     </div>
                   </td>
                   <td>
-                    <span className="badge-blue" style={{ fontSize: '11px' }}>
+                    <span className={isDeposit ? "badge-amber" : "badge-blue"} style={{ fontSize: '11px' }}>
                       {account.account_type}
                     </span>
                   </td>

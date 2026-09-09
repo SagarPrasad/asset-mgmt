@@ -29,6 +29,7 @@ export const EditAssetModal = ({
         netbanking_password: item.netbanking_password || '',
         pin_hint: item.pin_hint || '',
         branch: item.branch || '',
+        notes: item.notes || '',
         balance: snap.balance || 0,
         interest_acquired: snap.interest_acquired || 0
       };
@@ -108,6 +109,7 @@ export const EditAssetModal = ({
         netbanking_password: item.netbanking_password || '',
         pin_hint: item.pin_hint || '',
         branch: item.branch || '',
+        notes: item.notes || '',
         balance: snap.balance || 0,
         interest_acquired: snap.interest_acquired || 0
       });
@@ -195,6 +197,7 @@ export const EditAssetModal = ({
             netbanking_password: formData.netbanking_password,
             pin_hint: formData.pin_hint,
             branch: formData.branch,
+            notes: formData.notes || '',
             snapshots: {
               ...currentSnaps,
               [activeFy.id]: {
@@ -338,22 +341,35 @@ export const EditAssetModal = ({
             <>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div className="form-group">
-                  <label className="form-label">Bank Name</label>
+                  <label className="form-label">Bank Name / Institution</label>
                   <input type="text" name="bank_name" value={formData.bank_name} onChange={handleChange} className="form-input" required />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Account Type</label>
-                  <input type="text" name="account_type" value={formData.account_type} onChange={handleChange} className="form-input" required />
+                  <label className="form-label">Account / Deposit Type</label>
+                  <select
+                    name="account_type"
+                    value={formData.account_type || 'Savings Account'}
+                    onChange={handleChange}
+                    className="form-input"
+                    required
+                  >
+                    <option value="Fixed Deposit (FD)">Fixed Deposit (FD)</option>
+                    <option value="Term Deposit">Term Deposit</option>
+                    <option value="Recurring Deposit (RD)">Recurring Deposit (RD)</option>
+                    <option value="Savings Account">Savings Account</option>
+                    <option value="Salary Account">Salary Account</option>
+                    <option value="Current Account">Current Account</option>
+                  </select>
                 </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div className="form-group">
-                  <label className="form-label">Account Number</label>
+                  <label className="form-label">Account Number / FD Certificate No.</label>
                   <input type="text" name="account_number" value={formData.account_number} onChange={handleChange} className="form-input" />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Customer ID</label>
+                  <label className="form-label">Customer ID / CIF</label>
                   <input type="text" name="customer_id" value={formData.customer_id} onChange={handleChange} className="form-input" />
                 </div>
               </div>
@@ -376,13 +392,25 @@ export const EditAssetModal = ({
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div className="form-group">
-                  <label className="form-label">March 31 Balance ({activeFy.label})</label>
+                  <label className="form-label">March 31 Balance / FD Principal ({activeFy.label})</label>
                   <input type="number" step="any" name="balance" value={formData.balance} onChange={handleChange} className="form-input" required />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Interest Earned ({activeFy.label})</label>
                   <input type="number" step="any" name="interest_acquired" value={formData.interest_acquired} onChange={handleChange} className="form-input" />
                 </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Notes & Details (Maturity Date, Interest Rate %, Nominee)</label>
+                <input
+                  type="text"
+                  name="notes"
+                  value={formData.notes || ''}
+                  onChange={handleChange}
+                  className="form-input"
+                  placeholder="e.g. Matures on 15-Aug-2026 @ 7.25% p.a., Auto-renewal enabled"
+                />
               </div>
             </>
           )}
