@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { X, Database, CheckCircle2, CloudUpload, RefreshCw, LogIn, LogOut, Key, ExternalLink, Shield, Users, Plus, Trash2, KeyRound, Smartphone } from 'lucide-react';
+import { X, Database, CheckCircle2, CloudUpload, RefreshCw, LogIn, LogOut, Key, ExternalLink, Shield, Users, Plus, Trash2, KeyRound, Smartphone, Download } from 'lucide-react';
 import { resetSupabaseClient } from '../lib/supabaseClient';
-import { syncDataToSupabase, loadInitialData, saveLocalData } from '../services/dataService';
+import { syncDataToSupabase, loadInitialData, saveLocalData, exportToJsonBackup, importFromJsonBackup } from '../services/dataService';
 import { getAuthorizedEmails, saveAuthorizedEmails, setMasterPasswordVerification, isPrimaryHolder, getPrimaryHolderEmail } from '../utils/authConfig';
 import { createPasswordVerifier } from '../utils/crypto';
 import { MobileConnectModal } from './MobileConnectModal';
@@ -37,6 +37,24 @@ export const SupabaseModal = ({
   // Password update state
   const [newMasterPwd, setNewMasterPwd] = useState('');
   const [pwdUpdateMsg, setPwdUpdateMsg] = useState('');
+  const [backupStatus, setBackupStatus] = useState('');
+
+  const handleImportBackupFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setBackupStatus('Reading backup file & recreating Supabase database...');
+      const text = await file.text();
+      const restored = await importFromJsonBackup(text, user, masterPassword);
+      setData(restored);
+      setBackupStatus('✓ Entire portfolio and Supabase database successfully restored and recreated!');
+      setTimeout(() => setBackupStatus(''), 6000);
+    } catch (err) {
+      console.error('Backup restore failed:', err);
+      setBackupStatus(`Restore failed: ${err.message}`);
+    }
+  };
 
   const handleSaveConfig = () => {
     if (!isPrimary) {
@@ -371,6 +389,66 @@ export const SupabaseModal = ({
           {syncStatus && (
             <div style={{ marginTop: '0.75rem', padding: '0.5rem 0.75rem', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '8px', border: '1px solid rgba(56, 189, 248, 0.25)', fontSize: '0.75rem', color: '#38bdf8' }}>
               {syncStatus}
+            </div>
+          )}
+        </div>
+
+        {/* Section 4: Data Backup & Disaster Recovery (JSON / Recreate) */}
+        <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-md)', padding: '1.25rem', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+            <h3 style={{ fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Download size={16} color="#38bdf8" />
+              Database Backup & Portability (JSON / Recreate)
+            </h3>
+            <span className="badge-tag" style={{ background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8' }}>
+              Disaster Recovery
+            </span>
+          </div>
+          <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '1rem', lineHeight: 1.5 }}>
+            Export all tables, bank accounts (with snapshots & PIN hints), Demat portfolio holdings, and credentials into a portable JSON backup. You can use this file to recreate the entire Supabase database at any time.
+          </p>
+
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => exportToJsonBackup(data, user)}
+              className="btn-secondary"
+              style={{ fontSize: '0.8125rem', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.4)' }}
+              title="Download clean decrypted JSON backup of all portfolio data"
+            >
+              <Download size={14} color="#38bdf8" />
+              Download JSON Backup
+            </button>
+
+            {isPrimary && (
+              <label
+                className="btn-secondary"
+                style={{
+                  fontSize: '0.8125rem',
+                  color: '#34d399',
+                  borderColor: 'rgba(52, 211, 153, 0.4)',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+                title="Select a previously exported JSON backup to recreate all records in Supabase"
+              >
+                <CloudUpload size={14} color="#34d399" />
+                Restore / Recreate into Supabase
+                <input
+                  type="file"
+                  accept=".json"
+                  style={{ display: 'none' }}
+                  onChange={handleImportBackupFile}
+                />
+              </label>
+            )}
+          </div>
+
+          {backupStatus && (
+            <div style={{ marginTop: '0.75rem', padding: '0.5rem 0.75rem', background: 'rgba(52, 211, 153, 0.1)', borderRadius: '8px', border: '1px solid rgba(52, 211, 153, 0.25)', fontSize: '0.75rem', color: '#34d399' }}>
+              {backupStatus}
             </div>
           )}
         </div>

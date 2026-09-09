@@ -147,13 +147,19 @@ export const BankSection = ({
                         <Edit2 size={13} color="#38bdf8" />
                       </button>
                       <button
-                        onClick={() => onDeleteAsset(account.bank_name, 'Bank Account', () => {
-                          const updated = {
-                            ...data,
-                            bankAccounts: data.bankAccounts.filter(b => b.id !== account.id)
-                          };
-                          return updated;
-                        })}
+                        onClick={() => onDeleteAsset(
+                          account.bank_name,
+                          'Bank Account',
+                          () => {
+                            const updated = {
+                              ...data,
+                              bankAccounts: (data.bankAccounts || []).filter(b => b.id !== account.id)
+                            };
+                            return updated;
+                          },
+                          account,
+                          'bankAccount'
+                        )}
                         className="btn-icon"
                         style={{ width: 30, height: 30 }}
                         title="Delete account (Requires Master Password)"

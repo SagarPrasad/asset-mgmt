@@ -86,13 +86,22 @@ export const PropertySection = ({
                     <Edit2 size={13} color="#38bdf8" />
                   </button>
                   <button
-                    onClick={() => onDeleteAsset(prop.title || prop.premises || 'Property', 'Property', () => {
-                      const updated = {
-                        ...data,
-                        immovableProperties: (data.immovableProperties || []).filter(p => p.id !== prop.id)
-                      };
-                      return updated;
-                    })}
+                    onClick={() => onDeleteAsset(
+                      prop.title || prop.premises || 'Property',
+                      'Property',
+                      () => {
+                        const updated = {
+                          ...data,
+                          immovableProperties: (data.immovableProperties || []).filter(p => {
+                            if (p.id && prop.id) return p.id !== prop.id;
+                            return (p.premises || p.title) !== (prop.premises || prop.title);
+                          })
+                        };
+                        return updated;
+                      },
+                      prop,
+                      'immovableProperty'
+                    )}
                     className="btn-icon"
                     style={{ width: 28, height: 28 }}
                     title="Delete property (Requires Master Password)"

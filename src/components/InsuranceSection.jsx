@@ -215,13 +215,19 @@ export const InsuranceSection = ({
                         <Edit2 size={13} color="#38bdf8" />
                       </button>
                       <button
-                        onClick={() => onDeleteAsset(`${policy.provider} - ${policy.plan_name}`, 'Insurance Policy', () => {
-                          const updated = {
-                            ...data,
-                            insurancePolicies: data.insurancePolicies.filter(p => p.id !== policy.id)
-                          };
-                          return updated;
-                        })}
+                        onClick={() => onDeleteAsset(
+                          `${policy.provider} - ${policy.plan_name}`,
+                          'Insurance Policy',
+                          () => {
+                            const updated = {
+                              ...data,
+                              insurancePolicies: (data.insurancePolicies || []).filter(p => p.id !== policy.id)
+                            };
+                            return updated;
+                          },
+                          policy,
+                          'insurancePolicy'
+                        )}
                         className="btn-icon"
                         style={{ width: 30, height: 30 }}
                         title="Delete policy (Requires Master Password)"

@@ -2,10 +2,10 @@ import { createClient } from '@supabase/supabase-js';
 
 // Retrieve credentials from environment or localStorage for in-app configuration
 const getSupabaseConfig = () => {
-  const envUrl = import.meta.env.VITE_SUPABASE_URL;
-  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const localUrl = localStorage.getItem('family_vault_supabase_url');
-  const localKey = localStorage.getItem('family_vault_supabase_key');
+  const envUrl = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : '';
+  const envKey = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_ANON_KEY : '';
+  const localUrl = typeof localStorage !== 'undefined' ? localStorage.getItem('family_vault_supabase_url') : '';
+  const localKey = typeof localStorage !== 'undefined' ? localStorage.getItem('family_vault_supabase_key') : '';
 
   return {
     url: localUrl || envUrl || '',

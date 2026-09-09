@@ -31,7 +31,7 @@ import { UpcomingRemindersModal } from './components/UpcomingRemindersModal';
 import { LoginScreen } from './components/LoginScreen';
 import { VaultUnlockScreen } from './components/VaultUnlockScreen';
 import { UnauthorizedScreen } from './components/UnauthorizedScreen';
-import { loadInitialData, getFreshSeedData, saveLocalData, syncDataToSupabase } from './services/dataService';
+import { loadInitialData, getFreshSeedData, saveLocalData, syncDataToSupabase, deleteAssetFromSupabase } from './services/dataService';
 import { getSupabaseClient, resetSupabaseClient, signInWithGoogle, signOut } from './lib/supabaseClient';
 import { calculateFinancialYearTotals } from './utils/formatters';
 import { isEmailAuthorized } from './utils/authConfig';
@@ -258,13 +258,20 @@ export function App() {
     });
   };
 
-  const handleOpenDeleteAsset = (title, type, deleteAction) => {
+  const handleOpenDeleteAsset = (title, type, deleteAction, itemToDelete = null, assetCategory = null) => {
     setDeleteModal({
       isOpen: true,
       title,
       type,
-      onConfirm: () => {
-        const updatedData = deleteAction();
+      onConfirm: async () => {
+        if (itemToDelete && assetCategory && getSupabaseClient() && user) {
+          try {
+            await deleteAssetFromSupabase(assetCategory, itemToDelete, user);
+          } catch (err) {
+            console.warn(`Direct Supabase delete notice for ${assetCategory}:`, err);
+          }
+        }
+        const updatedData = await deleteAction();
         saveLocalData(updatedData, user);
         setData(updatedData);
         if (getSupabaseClient() && user) {

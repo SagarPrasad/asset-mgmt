@@ -46,10 +46,22 @@ export const matchesMember = (itemMemberId, targetMemberId, members = []) => {
   const targetMember = members.find(m => m.id === targetMemberId);
   if (!targetMember) return false;
 
+  // 1. If itemMemberId directly identifies another registered member, enforce strict ID match
+  const registeredItemMember = members.find(m => m.id === itemMemberId);
+  if (registeredItemMember) {
+    return registeredItemMember.id === targetMemberId;
+  }
+
   const targetName = (targetMember.name || '').toLowerCase().trim();
   const itemId = String(itemMemberId).toLowerCase().trim();
 
   if (itemId === targetName) return true;
+
+  // 2. Prevent false positives between personal member and HUF entity (e.g. "Primary Member" vs "Primary Member HUF")
+  const isTargetHuf = targetName.includes('huf');
+  const isItemHuf = itemId.includes('huf');
+  if (isTargetHuf !== isItemHuf) return false;
+
   if (targetName && (itemId.includes(targetName) || targetName.includes(itemId))) return true;
 
   return false;

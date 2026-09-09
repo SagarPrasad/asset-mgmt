@@ -140,13 +140,22 @@ export const MovableSection = ({
                         <Edit2 size={13} color="#38bdf8" />
                       </button>
                       <button
-                        onClick={() => onDeleteAsset(asset.item_name, 'Physical Asset', () => {
-                          const updated = {
-                            ...data,
-                            movableAssets: data.movableAssets.filter(m => m.id !== asset.id)
-                          };
-                          return updated;
-                        })}
+                        onClick={() => onDeleteAsset(
+                          asset.item_name,
+                          'Physical Asset',
+                          () => {
+                            const updated = {
+                              ...data,
+                              movableAssets: (data.movableAssets || []).filter(m => {
+                                if (m.id && asset.id) return m.id !== asset.id;
+                                return m.item_name !== asset.item_name;
+                              })
+                            };
+                            return updated;
+                          },
+                          asset,
+                          'movableAsset'
+                        )}
                         className="btn-icon"
                         style={{ width: 30, height: 30 }}
                         title="Delete asset (Requires Master Password)"

@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../lib/supabaseClient';
+import { getSupabaseClient } from '../lib/supabaseClient.js';
 import {
   INITIAL_FAMILY_MEMBERS,
   INITIAL_FINANCIAL_YEARS,
@@ -9,17 +9,22 @@ import {
   INITIAL_IMMOVABLE_PROPERTIES,
   INITIAL_MOVABLE_ASSETS,
   INITIAL_LIABILITIES_AND_EXPENSES
-} from '../data/seedData';
-import { encryptField, decryptField } from '../utils/crypto';
+} from '../data/seedData.js';
+import { encryptField, decryptField } from '../utils/crypto.js';
 import * as XLSX from 'xlsx';
-import { getCleanWorkbookData } from './excelImporter';
+import { getCleanWorkbookData } from './excelImporter.js';
 
-import { calculateHoldingMetrics } from './marketPriceService';
+import { calculateHoldingMetrics } from './marketPriceService.js';
 
 const STORAGE_KEY_PREFIX = 'family_vault_app_data_';
 
 // Get user storage key
 const getStorageKey = (userId) => `${STORAGE_KEY_PREFIX}${userId || 'local_guest'}`;
+
+// Validate standard UUID format
+export const isValidUuid = (str) => {
+  return typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+};
 
 // Helper to reliably link assets to the correct family member
 export const resolveMemberId = (item, members = [], itemType = 'bank') => {
@@ -38,11 +43,15 @@ export const resolveMemberId = (item, members = [], itemType = 'bank') => {
     if (nameMatch) return nameMatch.id;
   }
 
-  // 3. Name substring match across family members
+  // 3. Name substring match across family members (with HUF distinction)
   for (const member of members) {
     const memFirst = (member.name || '').split(' ')[0].toLowerCase().trim();
+    const isMemHuf = (member.name || '').toLowerCase().includes('huf');
+    const itemStr = `${item?.member_name || ''} ${item?.bank_name || ''} ${item?.notes || ''} ${item?.plan_name || ''}`.toLowerCase();
+    const isItemHuf = itemStr.includes('huf');
+    if (isMemHuf !== isItemHuf) continue;
+
     if (memFirst && memFirst.length > 2) {
-      const itemStr = `${item?.member_name || ''} ${item?.bank_name || ''} ${item?.notes || ''} ${item?.plan_name || ''}`.toLowerCase();
       if (itemStr.includes(memFirst)) {
         return member.id;
       }
@@ -106,19 +115,28 @@ export const loadInitialData = async (user, masterPassword) => {
         (props && props.length > 0);
 
       if (hasDataInSupabase) {
-        // 1. Decrypt members
+        // 1. Decrypt members (with metadata unpacking from notes)
         const decryptedMembers = await Promise.all(
-          (members || []).map(async (m) => ({
-            ...m,
-            pan: await safeDecrypt(m.pan),
-            aadhaar: await safeDecrypt(m.aadhaar),
-            voter_id: await safeDecrypt(m.voter_id),
-            driving_license: await safeDecrypt(m.driving_license),
-            passport: await safeDecrypt(m.passport)
-          }))
+          (members || []).map(async (m) => {
+            let meta = {};
+            if (m.notes && typeof m.notes === 'string' && m.notes.startsWith('{') && m.notes.endsWith('}')) {
+              try { meta = JSON.parse(m.notes); } catch {}
+            }
+            return {
+              ...m,
+              pan: await safeDecrypt(m.pan),
+              aadhaar: await safeDecrypt(m.aadhaar),
+              voter_id: await safeDecrypt(m.voter_id),
+              driving_license: await safeDecrypt(m.driving_license),
+              passport: await safeDecrypt(m.passport),
+              pran: m.pran || meta.pran || '',
+              demat_info: m.demat_info || meta.demat_info || '',
+              avatar_color: m.avatar_color || meta.avatar_color || m.avatar_url || '#3b82f6'
+            };
+          })
         );
 
-        // 2. Decrypt & Deduplicate Bank Accounts
+        // 2. Decrypt & Deduplicate Bank Accounts (with PIN hints and passwords)
         const rawDecryptedBanks = await Promise.all(
           (banks || []).map(async (b) => {
             const accNum = await safeDecrypt(b.account_number);
@@ -141,11 +159,31 @@ export const loadInitialData = async (user, masterPassword) => {
                 };
               });
 
+            // Extract PIN Hint & Netbanking Password from columns or packed notes
+            let pinHint = b.pin_hint || '';
+            let rawNetPass = b.netbanking_password || '';
+            let bankNotes = b.notes || '';
+            if (bankNotes && typeof bankNotes === 'string' && bankNotes.startsWith('{')) {
+              try {
+                const parsed = JSON.parse(bankNotes);
+                if (!pinHint && parsed.pin_hint) pinHint = parsed.pin_hint;
+                if (!rawNetPass && parsed.netbanking_password) rawNetPass = parsed.netbanking_password;
+                if (parsed.notes !== undefined) bankNotes = parsed.notes;
+              } catch {}
+            }
+
+            const netbankingPassword = await safeDecrypt(rawNetPass);
+
             return {
               ...b,
               member_id: resolvedMemberId,
               account_number: accNum,
               customer_id: custId,
+              netbanking_user: b.netbanking_user || '',
+              netbanking_password: netbankingPassword || '',
+              pin_hint: pinHint || '',
+              notes: bankNotes || '',
+              branch: b.branch || '',
               snapshots: accountSnaps
             };
           })
@@ -168,6 +206,9 @@ export const loadInitialData = async (user, masterPassword) => {
               ...(existing.snapshots || {}),
               ...(b.snapshots || {})
             };
+            if (!existing.pin_hint && b.pin_hint) existing.pin_hint = b.pin_hint;
+            if (!existing.netbanking_password && b.netbanking_password) existing.netbanking_password = b.netbanking_password;
+            if (!existing.notes && b.notes) existing.notes = b.notes;
           }
         }
 
@@ -190,10 +231,28 @@ export const loadInitialData = async (user, masterPassword) => {
               };
             }
 
+            let pinHint = inv.pin_hint || '';
+            let rawLoginPass = inv.login_password || '';
+            let invNotes = inv.notes || '';
+            if (invNotes && typeof invNotes === 'string' && invNotes.startsWith('{')) {
+              try {
+                const parsed = JSON.parse(invNotes);
+                if (!pinHint && parsed.pin_hint) pinHint = parsed.pin_hint;
+                if (!rawLoginPass && parsed.login_password) rawLoginPass = parsed.login_password;
+                if (parsed.notes !== undefined) invNotes = parsed.notes;
+              } catch {}
+            }
+
+            const loginPassword = await safeDecrypt(rawLoginPass);
+
             return {
               ...inv,
               member_id: resolvedMemberId,
               account_identifier: accId,
+              login_user: inv.login_user || '',
+              login_password: loginPassword || '',
+              pin_hint: pinHint || '',
+              notes: invNotes || '',
               cost_value: Number(inv.cost_value || 0),
               current_value: Number(inv.current_value || 0),
               values: valuesObj
@@ -216,7 +275,7 @@ export const loadInitialData = async (user, masterPassword) => {
         const seenHoldings = new Map();
         const dedupedHoldings = [];
         for (const rawH of (dematList || [])) {
-          const key = (rawH.symbol || rawH.name || '').trim().toUpperCase();
+          const key = (rawH.id || `${rawH.symbol || rawH.name}_${rawH.member_id || ''}`).trim().toUpperCase();
           const resolvedMemberId = resolveMemberId(rawH, decryptedMembers, 'demat');
           const metrics = calculateHoldingMetrics({
             ...rawH,
@@ -345,7 +404,172 @@ export const resetToSeedData = (user) => {
   return cleanData;
 };
 
-// Encrypt & Upload all data to Supabase database using Master Password
+// Delete a specific asset permanently from Supabase database tables
+export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
+  const supabase = getSupabaseClient();
+  if (!supabase || !user || !item) return;
+
+  const userId = user.id;
+
+  try {
+    switch (assetCategory) {
+      case 'dematHolding': {
+        let deleted = false;
+        if (item.id && isValidUuid(item.id)) {
+          const { data } = await supabase
+            .from('demat_holdings')
+            .delete()
+            .eq('user_id', userId)
+            .eq('id', item.id)
+            .select();
+          if (data && data.length > 0) deleted = true;
+        }
+        if (!deleted && item.symbol) {
+          await supabase
+            .from('demat_holdings')
+            .delete()
+            .eq('user_id', userId)
+            .eq('symbol', item.symbol);
+        }
+        break;
+      }
+      case 'bankAccount': {
+        if (item.id && isValidUuid(item.id)) {
+          await supabase.from('bank_snapshots').delete().eq('bank_account_id', item.id);
+          await supabase.from('bank_accounts').delete().eq('user_id', userId).eq('id', item.id);
+        } else if (item.bank_name) {
+          const { data: userBanks } = await supabase
+            .from('bank_accounts')
+            .select('id, bank_name')
+            .eq('user_id', userId);
+          for (const b of userBanks || []) {
+            if (b.bank_name.toLowerCase().trim() === item.bank_name.toLowerCase().trim()) {
+              await supabase.from('bank_snapshots').delete().eq('bank_account_id', b.id);
+              await supabase.from('bank_accounts').delete().eq('id', b.id);
+            }
+          }
+        }
+        break;
+      }
+      case 'investment': {
+        let deleted = false;
+        if (item.id && isValidUuid(item.id)) {
+          const { data } = await supabase
+            .from('investments')
+            .delete()
+            .eq('user_id', userId)
+            .eq('id', item.id)
+            .select();
+          if (data && data.length > 0) deleted = true;
+        }
+        if (!deleted && item.institution) {
+          await supabase
+            .from('investments')
+            .delete()
+            .eq('user_id', userId)
+            .eq('institution', item.institution);
+        }
+        break;
+      }
+      case 'insurancePolicy': {
+        let deleted = false;
+        if (item.id && isValidUuid(item.id)) {
+          const { data } = await supabase
+            .from('insurance_policies')
+            .delete()
+            .eq('user_id', userId)
+            .eq('id', item.id)
+            .select();
+          if (data && data.length > 0) deleted = true;
+        }
+        if (!deleted && item.provider && item.plan_name) {
+          await supabase
+            .from('insurance_policies')
+            .delete()
+            .eq('user_id', userId)
+            .eq('provider', item.provider)
+            .eq('plan_name', item.plan_name);
+        }
+        break;
+      }
+      case 'immovableProperty': {
+        let deleted = false;
+        if (item.id && isValidUuid(item.id)) {
+          const { data } = await supabase
+            .from('immovable_properties')
+            .delete()
+            .eq('user_id', userId)
+            .eq('id', item.id)
+            .select();
+          if (data && data.length > 0) deleted = true;
+        }
+        if (!deleted && (item.premises || item.title)) {
+          await supabase
+            .from('immovable_properties')
+            .delete()
+            .eq('user_id', userId)
+            .eq('premises', item.premises || item.title);
+        }
+        break;
+      }
+      case 'movableAsset': {
+        let deleted = false;
+        if (item.id && isValidUuid(item.id)) {
+          const { data } = await supabase
+            .from('movable_assets')
+            .delete()
+            .eq('user_id', userId)
+            .eq('id', item.id)
+            .select();
+          if (data && data.length > 0) deleted = true;
+        }
+        if (!deleted && item.item_name) {
+          await supabase
+            .from('movable_assets')
+            .delete()
+            .eq('user_id', userId)
+            .eq('item_name', item.item_name);
+        }
+        break;
+      }
+      case 'liability':
+      case 'expense': {
+        let deleted = false;
+        if (item.id && isValidUuid(item.id)) {
+          const { data } = await supabase
+            .from('liabilities_expenses')
+            .delete()
+            .eq('user_id', userId)
+            .eq('id', item.id)
+            .select();
+          if (data && data.length > 0) deleted = true;
+        }
+        if (!deleted && item.title) {
+          await supabase
+            .from('liabilities_expenses')
+            .delete()
+            .eq('user_id', userId)
+            .eq('title', item.title);
+        }
+        break;
+      }
+      case 'member': {
+        if (item.id && isValidUuid(item.id)) {
+          await supabase.from('family_members').delete().eq('user_id', userId).eq('id', item.id);
+        } else if (item.name) {
+          await supabase.from('family_members').delete().eq('user_id', userId).eq('name', item.name);
+        }
+        break;
+      }
+      default:
+        console.warn('Unknown asset category for deletion:', assetCategory);
+    }
+  } catch (err) {
+    console.error(`deleteAssetFromSupabase failed for ${assetCategory}:`, err);
+  }
+};
+
+// Encrypt & Upload all data to Supabase database with automated deletion pruning & reconciliation
 export const syncDataToSupabase = async (data, user, masterPassword) => {
   const supabase = getSupabaseClient();
   if (!supabase) {
@@ -355,7 +579,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
   const userId = user?.id || null;
   const encryptionKey = masterPassword || user?.id || 'local_guest';
 
-  // 1. Sync Family Members with encrypted PAN, Aadhaar, Voter ID, DL, Passport
+  // 1. Sync Family Members with encrypted credentials and metadata notes
   const memberIdMap = {};
   for (const m of (data.members || [])) {
     const encPan = await encryptField(m.pan, encryptionKey);
@@ -363,6 +587,13 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
     const encVoter = await encryptField(m.voter_id, encryptionKey);
     const encDl = await encryptField(m.driving_license, encryptionKey);
     const encPassport = await encryptField(m.passport, encryptionKey);
+
+    const memberNotesMeta = JSON.stringify({
+      pran: m.pran || '',
+      demat_info: m.demat_info || '',
+      avatar_color: m.avatar_color || '#3b82f6',
+      notes: m.notes || ''
+    });
 
     const { data: savedMember } = await supabase.from('family_members').upsert({
       name: m.name,
@@ -372,6 +603,8 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
       voter_id: encVoter,
       driving_license: encDl,
       passport: encPassport,
+      avatar_url: m.avatar_color || m.avatar_url || '#3b82f6',
+      notes: memberNotesMeta,
       user_id: userId
     }, { onConflict: 'user_id,name' }).select().single();
 
@@ -397,9 +630,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
     }, { onConflict: 'user_id,label' });
   }
 
-  // 3. Sync Bank Accounts & Snapshots
-  // To avoid duplicate bank rows created by randomized IV encryption:
-  // Fetch existing user bank rows and match by bank_name and last digits
+  // 3. Sync Bank Accounts & Snapshots with automated pruning
   const { data: existingBanks } = await supabase
     .from('bank_accounts')
     .select('id, bank_name, account_number')
@@ -412,121 +643,246 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
     }))
   );
 
-  for (const b of (data.bankAccounts || [])) {
-    const encAcc = await encryptField(b.account_number, encryptionKey);
-    const encCust = await encryptField(b.customer_id, encryptionKey);
-    const memberId = getSupabaseMemberId(b, 'bank');
+  if (Array.isArray(data.bankAccounts)) {
+    // 3a. Reconcile deleted bank accounts from Supabase
+    const currentBankIds = new Set(data.bankAccounts.map(b => b.id).filter(Boolean));
+    const currentBankKeys = new Set(data.bankAccounts.map(b => {
+      const normBank = (b.bank_name || '').trim().toLowerCase();
+      const normAcc = (b.account_number || '').trim().slice(-6);
+      return `${normBank}_${normAcc}`;
+    }));
 
-    // Find matching existing bank account
-    const matchedExisting = decryptedExistingBanks.find((eb) => {
-      if (eb.bank_name !== b.bank_name) return false;
-      if (b.account_number && eb.plainAcc) {
-        return eb.plainAcc.slice(-6) === b.account_number.slice(-6);
+    for (const eb of decryptedExistingBanks) {
+      const ebKey = `${(eb.bank_name || '').trim().toLowerCase()}_${(eb.plainAcc || '').trim().slice(-6)}`;
+      if (!currentBankIds.has(eb.id) && !currentBankKeys.has(ebKey)) {
+        await supabase.from('bank_snapshots').delete().eq('bank_account_id', eb.id);
+        await supabase.from('bank_accounts').delete().eq('id', eb.id);
       }
-      return true;
-    });
+    }
 
-    let bankRecordId = null;
+    // 3b. Upsert remaining bank accounts
+    for (const b of data.bankAccounts) {
+      const encAcc = await encryptField(b.account_number, encryptionKey);
+      const encCust = await encryptField(b.customer_id, encryptionKey);
+      const encNetPass = b.netbanking_password ? await encryptField(b.netbanking_password, encryptionKey) : null;
+      const memberId = getSupabaseMemberId(b, 'bank');
 
-    if (matchedExisting) {
-      // Update existing record in place
-      bankRecordId = matchedExisting.id;
-      await supabase.from('bank_accounts').update({
+      const matchedExisting = decryptedExistingBanks.find((eb) => {
+        if (eb.bank_name !== b.bank_name) return false;
+        if (b.account_number && eb.plainAcc) {
+          return eb.plainAcc.slice(-6) === b.account_number.slice(-6);
+        }
+        return true;
+      });
+
+      let bankRecordId = null;
+
+      // Pack pin_hint & netbanking_password into notes as a resilient fallback
+      const packedNotes = JSON.stringify({
+        notes: b.notes || '',
+        pin_hint: b.pin_hint || '',
+        netbanking_password: encNetPass || ''
+      });
+
+      const bankPayload = {
         bank_name: b.bank_name,
         account_type: b.account_type,
         account_number: encAcc,
         customer_id: encCust,
-        branch: b.branch,
-        netbanking_user: b.netbanking_user,
-        member_id: memberId
-      }).eq('id', bankRecordId);
+        branch: b.branch || '',
+        netbanking_user: b.netbanking_user || '',
+        member_id: memberId,
+        notes: packedNotes
+      };
 
-      // Clean up any other duplicate rows in DB matching this bank
-      const duplicateRows = decryptedExistingBanks.filter(
-        eb => eb.id !== bankRecordId && eb.bank_name === b.bank_name &&
-        (!b.account_number || !eb.plainAcc || eb.plainAcc.slice(-6) === b.account_number.slice(-6))
-      );
-      for (const dup of duplicateRows) {
-        await supabase.from('bank_accounts').delete().eq('id', dup.id);
+      if (matchedExisting) {
+        bankRecordId = matchedExisting.id;
+        try {
+          await supabase.from('bank_accounts').update({
+            ...bankPayload,
+            pin_hint: b.pin_hint || '',
+            netbanking_password: encNetPass
+          }).eq('id', bankRecordId);
+        } catch {
+          await supabase.from('bank_accounts').update(bankPayload).eq('id', bankRecordId);
+        }
+
+        const duplicateRows = decryptedExistingBanks.filter(
+          eb => eb.id !== bankRecordId && eb.bank_name === b.bank_name &&
+          (!b.account_number || !eb.plainAcc || eb.plainAcc.slice(-6) === b.account_number.slice(-6))
+        );
+        for (const dup of duplicateRows) {
+          await supabase.from('bank_snapshots').delete().eq('bank_account_id', dup.id);
+          await supabase.from('bank_accounts').delete().eq('id', dup.id);
+        }
+      } else {
+        let insertedBank = null;
+        try {
+          const res = await supabase.from('bank_accounts').insert({
+            ...bankPayload,
+            pin_hint: b.pin_hint || '',
+            netbanking_password: encNetPass,
+            user_id: userId
+          }).select().single();
+          insertedBank = res.data;
+        } catch {
+          const res = await supabase.from('bank_accounts').insert({
+            ...bankPayload,
+            user_id: userId
+          }).select().single();
+          insertedBank = res.data;
+        }
+
+        if (insertedBank) {
+          bankRecordId = insertedBank.id;
+        }
       }
-    } else {
-      // Insert new bank record
-      const { data: insertedBank } = await supabase.from('bank_accounts').insert({
-        bank_name: b.bank_name,
-        account_type: b.account_type,
-        account_number: encAcc,
-        customer_id: encCust,
-        branch: b.branch,
-        netbanking_user: b.netbanking_user,
+
+      // Upsert snapshots
+      if (bankRecordId && b.snapshots) {
+        for (const [fyKey, snap] of Object.entries(b.snapshots)) {
+          await supabase.from('bank_snapshots').upsert({
+            bank_account_id: bankRecordId,
+            fy_id: fyKey,
+            balance: Number(snap.balance || 0),
+            interest_acquired: Number(snap.interest_acquired || 0),
+            investments_linked: Number(snap.investments_linked || 0),
+            user_id: userId
+          }, { onConflict: 'bank_account_id,fy_id' });
+        }
+      }
+    }
+  }
+
+  // 4. Sync Immovable Properties with automated pruning
+  if (Array.isArray(data.immovableProperties)) {
+    const { data: existingProps } = await supabase
+      .from('immovable_properties')
+      .select('id, premises, title')
+      .eq('user_id', userId);
+
+    if (existingProps && existingProps.length > 0) {
+      const currentIds = new Set(data.immovableProperties.map(p => p.id).filter(Boolean));
+      const currentPremises = new Set(data.immovableProperties.map(p => (p.premises || p.title || '').toLowerCase().trim()).filter(Boolean));
+      const staleProps = existingProps.filter(ex => {
+        const idMatch = currentIds.has(ex.id);
+        const premisesMatch = currentPremises.has((ex.premises || ex.title || '').toLowerCase().trim());
+        return !idMatch && !premisesMatch;
+      });
+      for (const stale of staleProps) {
+        await supabase.from('immovable_properties').delete().eq('user_id', userId).eq('id', stale.id);
+      }
+    }
+
+    for (const p of data.immovableProperties) {
+      const memberId = getSupabaseMemberId(p, 'property');
+      const propPayload = {
+        description: p.description,
+        premises: p.premises,
+        door_no: p.door_no,
+        road: p.road,
+        area: p.area,
+        city: p.city,
+        state: p.state,
+        country: p.country,
+        pincode: p.pincode,
+        cost_amount: Number(p.cost_amount || 0),
+        current_valuation: Number(p.current_valuation || 0),
+        co_ownership: p.co_ownership,
         member_id: memberId,
         user_id: userId
-      }).select().single();
-
-      if (insertedBank) {
-        bankRecordId = insertedBank.id;
+      };
+      if (p.id && isValidUuid(p.id)) {
+        propPayload.id = p.id;
       }
-    }
-
-    // Upsert snapshots
-    if (bankRecordId && b.snapshots) {
-      for (const [fyKey, snap] of Object.entries(b.snapshots)) {
-        await supabase.from('bank_snapshots').upsert({
-          bank_account_id: bankRecordId,
-          fy_id: fyKey,
-          balance: Number(snap.balance || 0),
-          interest_acquired: Number(snap.interest_acquired || 0),
-          investments_linked: Number(snap.investments_linked || 0),
-          user_id: userId
-        }, { onConflict: 'bank_account_id,fy_id' });
-      }
+      await supabase.from('immovable_properties').upsert(propPayload, { onConflict: 'user_id,premises' });
     }
   }
 
-  // 4. Sync Immovable Properties
-  for (const p of (data.immovableProperties || [])) {
-    const memberId = getSupabaseMemberId(p, 'property');
-    await supabase.from('immovable_properties').upsert({
-      description: p.description,
-      premises: p.premises,
-      door_no: p.door_no,
-      road: p.road,
-      area: p.area,
-      city: p.city,
-      state: p.state,
-      country: p.country,
-      pincode: p.pincode,
-      cost_amount: Number(p.cost_amount || 0),
-      current_valuation: Number(p.current_valuation || 0),
-      co_ownership: p.co_ownership,
-      member_id: memberId,
-      user_id: userId
-    }, { onConflict: 'user_id,premises' });
-  }
+  // 5. Sync Investments (EPFO, NPS, Bonds) with automated pruning
+  if (Array.isArray(data.investments)) {
+    const { data: existingInvs } = await supabase
+      .from('investments')
+      .select('id, institution')
+      .eq('user_id', userId);
 
-  // 5. Sync Investments (Demat, EPFO, NPS, Bonds)
-  if (data.investments) {
+    if (existingInvs && existingInvs.length > 0) {
+      const currentIds = new Set(data.investments.map(i => i.id).filter(Boolean));
+      const currentInsts = new Set(data.investments.map(i => (i.institution || '').toLowerCase().trim()).filter(Boolean));
+      const staleInvs = existingInvs.filter(ex => {
+        const idMatch = currentIds.has(ex.id);
+        const instMatch = currentInsts.has((ex.institution || '').toLowerCase().trim());
+        return !idMatch && !instMatch;
+      });
+      for (const stale of staleInvs) {
+        await supabase.from('investments').delete().eq('user_id', userId).eq('id', stale.id);
+      }
+    }
+
     for (const inv of data.investments) {
       const encId = await encryptField(inv.account_identifier, encryptionKey);
+      const encLoginPass = inv.login_password ? await encryptField(inv.login_password, encryptionKey) : null;
       const memberId = getSupabaseMemberId(inv, 'investment');
-      await supabase.from('investments').upsert({
+
+      const packedNotes = JSON.stringify({
+        notes: inv.notes || '',
+        pin_hint: inv.pin_hint || '',
+        login_password: encLoginPass || ''
+      });
+
+      const invPayload = {
         category: inv.category,
         institution: inv.institution,
         account_identifier: encId,
         cost_value: Number(inv.cost_value || 0),
         current_value: Number(inv.values?.fy_25_26 || inv.values?.fy_24_25 || inv.values?.fy_23_24 || inv.current_value || 0),
-        notes: inv.notes,
+        login_user: inv.login_user || '',
+        login_password: encLoginPass,
+        notes: packedNotes,
         member_id: memberId,
         user_id: userId
-      }, { onConflict: 'user_id,institution' });
+      };
+      if (inv.id && isValidUuid(inv.id)) {
+        invPayload.id = inv.id;
+      }
+      try {
+        await supabase.from('investments').upsert(invPayload, { onConflict: 'user_id,institution' });
+      } catch {
+        delete invPayload.login_user;
+        delete invPayload.login_password;
+        await supabase.from('investments').upsert(invPayload, { onConflict: 'user_id,institution' });
+      }
     }
   }
 
-  // 5b. Sync Demat Holdings (Stocks & Mutual Funds)
-  if (data.dematHoldings) {
+  // 5b. Sync Demat Holdings (Stocks & Mutual Funds) with automated pruning
+  if (Array.isArray(data.dematHoldings)) {
     try {
+      const { data: existingDemat } = await supabase
+        .from('demat_holdings')
+        .select('id, symbol, name')
+        .eq('user_id', userId);
+
+      if (existingDemat && existingDemat.length > 0) {
+        const currentIds = new Set(data.dematHoldings.map(h => h.id).filter(Boolean));
+        const currentSymbols = new Set(data.dematHoldings.map(h => (h.symbol || '').toUpperCase().trim()).filter(Boolean));
+        const currentNames = new Set(data.dematHoldings.map(h => (h.name || '').toLowerCase().trim()).filter(Boolean));
+
+        const staleHoldings = existingDemat.filter(ex => {
+          const idMatch = currentIds.has(ex.id);
+          const symbolMatch = ex.symbol && currentSymbols.has(ex.symbol.toUpperCase().trim());
+          const nameMatch = ex.name && currentNames.has(ex.name.toLowerCase().trim());
+          return !idMatch && !symbolMatch && !nameMatch;
+        });
+
+        for (const stale of staleHoldings) {
+          await supabase.from('demat_holdings').delete().eq('user_id', userId).eq('id', stale.id);
+        }
+      }
+
       for (const h of data.dematHoldings) {
         const memberId = getSupabaseMemberId(h, 'demat');
-        await supabase.from('demat_holdings').upsert({
+        const holdingPayload = {
           symbol: h.symbol,
           name: h.name,
           category: h.category || 'Equity / Stocks',
@@ -539,19 +895,41 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
           notes: h.notes || '',
           member_id: memberId,
           user_id: userId
-        }, { onConflict: 'user_id,symbol' });
+        };
+        if (h.id && isValidUuid(h.id)) {
+          holdingPayload.id = h.id;
+        }
+        await supabase.from('demat_holdings').upsert(holdingPayload, { onConflict: 'user_id,symbol' });
       }
     } catch (e) {
-      console.warn('demat_holdings sync skipped:', e.message);
+      console.warn('demat_holdings sync notice:', e.message);
     }
   }
 
-  // 6. Sync Insurance Policies with encrypted policy number
-  if (data.insurancePolicies) {
+  // 6. Sync Insurance Policies with automated pruning
+  if (Array.isArray(data.insurancePolicies)) {
+    const { data: existingIns } = await supabase
+      .from('insurance_policies')
+      .select('id, provider, plan_name')
+      .eq('user_id', userId);
+
+    if (existingIns && existingIns.length > 0) {
+      const currentIds = new Set(data.insurancePolicies.map(i => i.id).filter(Boolean));
+      const currentKeys = new Set(data.insurancePolicies.map(i => `${(i.provider || '').toLowerCase().trim()}_${(i.plan_name || '').toLowerCase().trim()}`));
+      const staleIns = existingIns.filter(ex => {
+        const idMatch = currentIds.has(ex.id);
+        const keyMatch = currentKeys.has(`${(ex.provider || '').toLowerCase().trim()}_${(ex.plan_name || '').toLowerCase().trim()}`);
+        return !idMatch && !keyMatch;
+      });
+      for (const stale of staleIns) {
+        await supabase.from('insurance_policies').delete().eq('user_id', userId).eq('id', stale.id);
+      }
+    }
+
     for (const ins of data.insurancePolicies) {
       const encPolicyNo = await encryptField(ins.policy_no, encryptionKey);
       const memberId = getSupabaseMemberId(ins, 'insurance');
-      await supabase.from('insurance_policies').upsert({
+      const insPayload = {
         provider: ins.provider,
         plan_name: ins.plan_name,
         policy_no: encPolicyNo,
@@ -565,15 +943,37 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
         notes: ins.notes,
         member_id: memberId,
         user_id: userId
-      }, { onConflict: 'user_id,provider,plan_name' });
+      };
+      if (ins.id && isValidUuid(ins.id)) {
+        insPayload.id = ins.id;
+      }
+      await supabase.from('insurance_policies').upsert(insPayload, { onConflict: 'user_id,provider,plan_name' });
     }
   }
 
-  // 7. Sync Movable Assets
-  if (data.movableAssets) {
+  // 7. Sync Movable Assets with automated pruning
+  if (Array.isArray(data.movableAssets)) {
+    const { data: existingMovs } = await supabase
+      .from('movable_assets')
+      .select('id, item_name')
+      .eq('user_id', userId);
+
+    if (existingMovs && existingMovs.length > 0) {
+      const currentIds = new Set(data.movableAssets.map(m => m.id).filter(Boolean));
+      const currentNames = new Set(data.movableAssets.map(m => (m.item_name || '').toLowerCase().trim()).filter(Boolean));
+      const staleMovs = existingMovs.filter(ex => {
+        const idMatch = currentIds.has(ex.id);
+        const nameMatch = currentNames.has((ex.item_name || '').toLowerCase().trim());
+        return !idMatch && !nameMatch;
+      });
+      for (const stale of staleMovs) {
+        await supabase.from('movable_assets').delete().eq('user_id', userId).eq('id', stale.id);
+      }
+    }
+
     for (const m of data.movableAssets) {
       const memberId = getSupabaseMemberId(m, 'movable');
-      await supabase.from('movable_assets').upsert({
+      const movPayload = {
         category: m.category,
         item_name: m.item_name,
         year_of_purchase: m.year_of_purchase,
@@ -583,14 +983,36 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
         notes: m.notes,
         member_id: memberId,
         user_id: userId
-      }, { onConflict: 'user_id,item_name' });
+      };
+      if (m.id && isValidUuid(m.id)) {
+        movPayload.id = m.id;
+      }
+      await supabase.from('movable_assets').upsert(movPayload, { onConflict: 'user_id,item_name' });
     }
   }
 
-  // 8. Sync Liabilities & Expenses
-  if (data.liabilitiesAndExpenses) {
+  // 8. Sync Liabilities & Expenses with automated pruning
+  if (Array.isArray(data.liabilitiesAndExpenses)) {
+    const { data: existingLiabs } = await supabase
+      .from('liabilities_expenses')
+      .select('id, title')
+      .eq('user_id', userId);
+
+    if (existingLiabs && existingLiabs.length > 0) {
+      const currentIds = new Set(data.liabilitiesAndExpenses.map(l => l.id).filter(Boolean));
+      const currentTitles = new Set(data.liabilitiesAndExpenses.map(l => (l.title || '').toLowerCase().trim()).filter(Boolean));
+      const staleLiabs = existingLiabs.filter(ex => {
+        const idMatch = currentIds.has(ex.id);
+        const titleMatch = currentTitles.has((ex.title || '').toLowerCase().trim());
+        return !idMatch && !titleMatch;
+      });
+      for (const stale of staleLiabs) {
+        await supabase.from('liabilities_expenses').delete().eq('user_id', userId).eq('id', stale.id);
+      }
+    }
+
     for (const l of data.liabilitiesAndExpenses) {
-      await supabase.from('liabilities_expenses').upsert({
+      const liabPayload = {
         category: l.category,
         title: l.title,
         amount: Number(l.amount || 0),
@@ -598,7 +1020,11 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
         reminder_schedule: l.reminder_schedule,
         notes: l.notes,
         user_id: userId
-      }, { onConflict: 'user_id,title' });
+      };
+      if (l.id && isValidUuid(l.id)) {
+        liabPayload.id = l.id;
+      }
+      await supabase.from('liabilities_expenses').upsert(liabPayload, { onConflict: 'user_id,title' });
     }
   }
 
@@ -722,4 +1148,71 @@ export const exportToExcel = (data, activeFy) => {
   // Write file
   const fileName = `Family_Asset_Vault_${activeFy?.label?.replace(/\s+/g, '_') || 'Portfolio'}.xlsx`;
   XLSX.writeFile(wb, fileName);
+};
+
+/**
+ * Export full decrypted portfolio dataset as a downloadable JSON backup
+ */
+export const exportToJsonBackup = (data, user) => {
+  const exportPayload = {
+    app: 'family-asset-vault',
+    version: '1.0.0',
+    export_date: new Date().toISOString(),
+    exported_by: user?.email || 'authenticated_user',
+    user_id: user?.id || null,
+    data: {
+      members: data.members || [],
+      financialYears: data.financialYears || [],
+      bankAccounts: data.bankAccounts || [],
+      investments: data.investments || [],
+      dematHoldings: data.dematHoldings || [],
+      insurancePolicies: data.insurancePolicies || [],
+      immovableProperties: data.immovableProperties || [],
+      movableAssets: data.movableAssets || [],
+      liabilitiesAndExpenses: data.liabilitiesAndExpenses || []
+    }
+  };
+
+  const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+    JSON.stringify(exportPayload, null, 2)
+  )}`;
+  const downloadAnchor = document.createElement('a');
+  downloadAnchor.setAttribute('href', jsonString);
+  const dateStr = new Date().toISOString().split('T')[0];
+  downloadAnchor.setAttribute('download', `family_vault_backup_${dateStr}.json`);
+  document.body.appendChild(downloadAnchor);
+  downloadAnchor.click();
+  downloadAnchor.remove();
+};
+
+/**
+ * Import & restore dataset from JSON backup, then sync to Supabase to recreate all records
+ */
+export const importFromJsonBackup = async (jsonString, user, masterPassword) => {
+  const parsed = JSON.parse(jsonString);
+  const rawData = parsed.data || parsed;
+
+  if (!rawData || typeof rawData !== 'object') {
+    throw new Error('Invalid backup file format.');
+  }
+
+  const restoredData = {
+    members: rawData.members || [],
+    financialYears: rawData.financialYears || [],
+    bankAccounts: rawData.bankAccounts || [],
+    investments: rawData.investments || [],
+    dematHoldings: rawData.dematHoldings || [],
+    insurancePolicies: rawData.insurancePolicies || [],
+    immovableProperties: rawData.immovableProperties || [],
+    movableAssets: rawData.movableAssets || [],
+    liabilitiesAndExpenses: rawData.liabilitiesAndExpenses || []
+  };
+
+  saveLocalData(restoredData, user);
+
+  if (getSupabaseClient() && user) {
+    await syncDataToSupabase(restoredData, user, masterPassword);
+  }
+
+  return restoredData;
 };

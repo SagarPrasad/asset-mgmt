@@ -99,13 +99,22 @@ export const LiabilitySection = ({
                           <Edit2 size={12} color="#38bdf8" />
                         </button>
                         <button
-                          onClick={() => onDeleteAsset(l.title, 'Loan / Liability', () => {
-                            const updated = {
-                              ...data,
-                              liabilitiesAndExpenses: data.liabilitiesAndExpenses.filter(i => i.id !== l.id)
-                            };
-                            return updated;
-                          })}
+                          onClick={() => onDeleteAsset(
+                            l.title,
+                            'Loan / Liability',
+                            () => {
+                              const updated = {
+                                ...data,
+                                liabilitiesAndExpenses: (data.liabilitiesAndExpenses || []).filter(i => {
+                                  if (i.id && l.id) return i.id !== l.id;
+                                  return i.title !== l.title;
+                                })
+                              };
+                              return updated;
+                            },
+                            l,
+                            'liability'
+                          )}
                           className="btn-icon"
                           style={{ width: 28, height: 28 }}
                           title="Delete loan (Requires Master Password)"
@@ -165,13 +174,22 @@ export const LiabilitySection = ({
                           <Edit2 size={12} color="#38bdf8" />
                         </button>
                         <button
-                          onClick={() => onDeleteAsset(exp.title, 'Monthly Outflow', () => {
-                            const updated = {
-                              ...data,
-                              liabilitiesAndExpenses: data.liabilitiesAndExpenses.filter(i => i.id !== exp.id)
-                            };
-                            return updated;
-                          })}
+                          onClick={() => onDeleteAsset(
+                            exp.title,
+                            'Monthly Outflow',
+                            () => {
+                              const updated = {
+                                ...data,
+                                liabilitiesAndExpenses: (data.liabilitiesAndExpenses || []).filter(i => {
+                                  if (i.id && exp.id) return i.id !== exp.id;
+                                  return i.title !== exp.title;
+                                })
+                              };
+                              return updated;
+                            },
+                            exp,
+                            'expense'
+                          )}
                           className="btn-icon"
                           style={{ width: 28, height: 28 }}
                           title="Delete expense (Requires Master Password)"

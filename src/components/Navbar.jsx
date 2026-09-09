@@ -1,6 +1,6 @@
 import React from 'react';
 import { Shield, Eye, EyeOff, Download, Database, LogIn, LogOut, CheckCircle, Sparkles, Lock, Bell, Crown } from 'lucide-react';
-import { exportToExcel } from '../services/dataService';
+import { exportToExcel, exportToJsonBackup } from '../services/dataService';
 import { isPrimaryHolder } from '../utils/authConfig';
 import { ThemePicker } from './ThemePicker';
 
@@ -66,6 +66,17 @@ export const Navbar = ({
         >
           <Download size={16} color="#10b981" />
           <span style={{ fontSize: '0.8125rem' }}>Export Excel</span>
+        </button>
+
+        {/* Export JSON Backup */}
+        <button
+          onClick={() => exportToJsonBackup(data, user)}
+          className="btn-secondary"
+          title="Download full portfolio JSON backup (for disaster recovery and recreation)"
+          style={{ borderColor: 'rgba(56, 189, 248, 0.3)' }}
+        >
+          <Database size={15} color="#38bdf8" />
+          <span style={{ fontSize: '0.8125rem' }}>Backup (JSON)</span>
         </button>
 
         {/* Lock Vault Button */}

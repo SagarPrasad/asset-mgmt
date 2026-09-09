@@ -348,13 +348,23 @@ export const InvestmentSection = ({
                             <Edit2 size={13} color="#38bdf8" />
                           </button>
                           <button
-                            onClick={() => onDeleteAsset(h.name, 'Stock / Fund Holding', () => {
-                              const updated = {
-                                ...data,
-                                dematHoldings: (data.dematHoldings || []).filter(item => item.id !== h.id)
-                              };
-                              return updated;
-                            })}
+                            onClick={() => onDeleteAsset(
+                              h.name,
+                              'Stock / Fund Holding',
+                              () => {
+                                const updated = {
+                                  ...data,
+                                  dematHoldings: (data.dematHoldings || []).filter(item => {
+                                    if (item.id && h.id) return item.id !== h.id;
+                                    if (item.symbol && h.symbol) return item.symbol.toUpperCase().trim() !== h.symbol.toUpperCase().trim();
+                                    return item.name !== h.name;
+                                  })
+                                };
+                                return updated;
+                              },
+                              h,
+                              'dematHolding'
+                            )}
                             className="btn-icon"
                             style={{ width: 28, height: 28 }}
                             title="Delete holding (Requires Master Password)"
@@ -481,13 +491,22 @@ export const InvestmentSection = ({
                           <Edit2 size={13} color="#38bdf8" />
                         </button>
                         <button
-                          onClick={() => onDeleteAsset(inv.institution, 'Investment', () => {
-                            const updated = {
-                              ...data,
-                              investments: data.investments.filter(i => i.id !== inv.id)
-                            };
-                            return updated;
-                          })}
+                          onClick={() => onDeleteAsset(
+                            inv.institution,
+                            'Investment',
+                            () => {
+                              const updated = {
+                                ...data,
+                                investments: (data.investments || []).filter(i => {
+                                  if (i.id && inv.id) return i.id !== inv.id;
+                                  return i.institution !== inv.institution;
+                                })
+                              };
+                              return updated;
+                            },
+                            inv,
+                            'investment'
+                          )}
                           className="btn-icon"
                           style={{ width: 30, height: 30 }}
                           title="Delete investment (Requires Master Password)"
