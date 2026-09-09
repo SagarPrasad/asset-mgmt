@@ -88,6 +88,7 @@ export function App() {
   // Modals State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addModalType, setAddModalType] = useState('bank');
+  const [addModalCategory, setAddModalCategory] = useState(null);
   const [isAddFyModalOpen, setIsAddFyModalOpen] = useState(false);
 
   const [editModal, setEditModal] = useState({
