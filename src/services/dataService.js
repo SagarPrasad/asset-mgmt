@@ -123,7 +123,8 @@ export const loadInitialData = async (user, masterPassword) => {
         (banks && banks.length > 0) ||
         (invs && invs.length > 0) ||
         (insList && insList.length > 0) ||
-        (props && props.length > 0);
+        (props && props.length > 0) ||
+        (dematList && dematList.length > 0);
 
       if (hasDataInSupabase) {
         // 1. Decrypt members (with metadata unpacking from notes)
@@ -317,16 +318,30 @@ export const loadInitialData = async (user, masterPassword) => {
         const seenHoldings = new Map();
         const dedupedHoldings = [];
         for (const rawH of (dematList || [])) {
-          const key = (rawH.id || `${rawH.symbol || rawH.name}_${rawH.member_id || ''}`).trim().toUpperCase();
+          const key = (rawH.id && isValidUuid(rawH.id)) ? rawH.id : `${rawH.symbol || rawH.name}_${rawH.member_id || ''}`.trim().toUpperCase();
           const resolvedMemberId = resolveMemberId(rawH, decryptedMembers, 'demat');
+          const units = Number(rawH.units || 0);
+          const investedAmount = Number(rawH.invested_amount || 0);
+          let currentPrice = Number(rawH.current_price || 0);
+          let avgBuyPrice = Number(rawH.avg_buy_price || 0);
+          if (avgBuyPrice <= 0 && units > 0 && investedAmount > 0) {
+            avgBuyPrice = investedAmount / units;
+          }
+          if (currentPrice <= 0 && avgBuyPrice > 0) {
+            currentPrice = avgBuyPrice;
+          }
+          const currentValue = (units > 0 && currentPrice > 0)
+            ? (units * currentPrice)
+            : (Number(rawH.current_value) || investedAmount);
+
           const metrics = calculateHoldingMetrics({
             ...rawH,
             member_id: resolvedMemberId,
-            units: Number(rawH.units || 0),
-            invested_amount: Number(rawH.invested_amount || 0),
-            avg_buy_price: Number(rawH.avg_buy_price || 0),
-            current_price: Number(rawH.current_price || 0),
-            current_value: Number(rawH.current_value || 0)
+            units,
+            invested_amount: investedAmount,
+            avg_buy_price: avgBuyPrice,
+            current_price: currentPrice,
+            current_value: currentValue
           });
 
           if (!seenHoldings.has(key)) {
@@ -422,6 +437,35 @@ export const loadInitialData = async (user, masterPassword) => {
             monthly_payment: Number(l.monthly_payment || 0)
           };
         });
+
+        // Defensive merge with local storage cache to ensure freshly saved demat holdings and investments are never wiped on instant refresh
+        if (cachedRaw) {
+          try {
+            const cachedParsed = JSON.parse(cachedRaw);
+            // 1. Demat holdings defensive preservation
+            if (Array.isArray(cachedParsed?.dematHoldings) && cachedParsed.dematHoldings.length > 0) {
+              if (dedupedHoldings.length === 0) {
+                dedupedHoldings.push(...cachedParsed.dematHoldings.map(h => calculateHoldingMetrics(h)));
+              } else {
+                for (const lh of cachedParsed.dematHoldings) {
+                  const exists = dedupedHoldings.some(dh =>
+                    (dh.id && lh.id && dh.id === lh.id) ||
+                    (dh.symbol && lh.symbol && dh.symbol.toUpperCase() === lh.symbol.toUpperCase() && dh.member_id === lh.member_id)
+                  );
+                  if (!exists) {
+                    dedupedHoldings.push(calculateHoldingMetrics(lh));
+                  }
+                }
+              }
+            }
+            // 2. Macro investments defensive preservation
+            if (Array.isArray(cachedParsed?.investments) && cachedParsed.investments.length > 0 && dedupedInvestments.length === 0) {
+              dedupedInvestments.push(...cachedParsed.investments);
+            }
+          } catch (err) {
+            console.warn('Cache merge notice:', err);
+          }
+        }
 
         return {
           members: decryptedMembers,
@@ -1027,14 +1071,8 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
 
       if (existingDemat && existingDemat.length > 0) {
         const currentIds = new Set(data.dematHoldings.map(h => h.id).filter(Boolean));
-        const currentSymbols = new Set(data.dematHoldings.map(h => (h.symbol || '').toUpperCase().trim()).filter(Boolean));
-        const currentNames = new Set(data.dematHoldings.map(h => (h.name || '').toLowerCase().trim()).filter(Boolean));
-
         const staleHoldings = existingDemat.filter(ex => {
-          const idMatch = currentIds.has(ex.id);
-          const symbolMatch = ex.symbol && currentSymbols.has(ex.symbol.toUpperCase().trim());
-          const nameMatch = ex.name && currentNames.has(ex.name.toLowerCase().trim());
-          return !idMatch && !symbolMatch && !nameMatch;
+          return currentIds.size > 0 && !currentIds.has(ex.id);
         });
 
         for (const stale of staleHoldings) {
@@ -1044,24 +1082,52 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
 
       for (const h of data.dematHoldings) {
         const memberId = getSupabaseMemberId(h, 'demat');
+        const units = Number(h.units || 0);
+        const investedAmount = Number(h.invested_amount || 0);
+        let currentPrice = Number(h.current_price || 0);
+        let avgBuyPrice = Number(h.avg_buy_price || 0);
+        if (avgBuyPrice <= 0 && units > 0 && investedAmount > 0) {
+          avgBuyPrice = investedAmount / units;
+        }
+        if (currentPrice <= 0 && avgBuyPrice > 0) {
+          currentPrice = avgBuyPrice;
+        }
+        const currentValue = (units > 0 && currentPrice > 0)
+          ? (units * currentPrice)
+          : (Number(h.current_value) || investedAmount);
+
         const holdingPayload = {
-          symbol: h.symbol,
-          name: h.name,
+          symbol: h.symbol || h.name || 'HOLDING',
+          name: h.name || h.symbol || 'Unnamed Holding',
           category: h.category || 'Equity / Stocks',
           exchange: h.exchange || 'NSE',
-          units: Number(h.units || 0),
-          invested_amount: Number(h.invested_amount || 0),
-          avg_buy_price: Number(h.avg_buy_price || 0),
-          current_price: Number(h.current_price || 0),
-          current_value: Number(h.current_value || (Number(h.units || 0) * Number(h.current_price || 0)) || 0),
+          units,
+          invested_amount: investedAmount,
+          avg_buy_price: avgBuyPrice,
+          current_price: currentPrice,
+          current_value: currentValue,
           notes: h.notes || '',
           member_id: memberId,
           user_id: userId
         };
+
         if (h.id && isValidUuid(h.id)) {
           holdingPayload.id = h.id;
+          let res = await supabase.from('demat_holdings').upsert(holdingPayload, { onConflict: 'id' });
+          if (res.error) {
+            await supabase.from('demat_holdings').upsert(holdingPayload, { onConflict: 'user_id,symbol' });
+          }
+        } else {
+          let res = await supabase.from('demat_holdings').upsert(holdingPayload, { onConflict: 'user_id,symbol' });
+          if (res.error) {
+            const insertRes = await supabase.from('demat_holdings').insert(holdingPayload).select().single();
+            if (insertRes.data?.id) {
+              h.id = insertRes.data.id;
+            }
+          } else if (res.data?.[0]?.id) {
+            h.id = res.data[0].id;
+          }
         }
-        await supabase.from('demat_holdings').upsert(holdingPayload, { onConflict: 'user_id,symbol' });
       }
     } catch (e) {
       console.warn('demat_holdings sync notice:', e.message);

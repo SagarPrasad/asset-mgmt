@@ -22,39 +22,100 @@ const TOP_INDIAN_STOCKS = {
   'SBIN.NS': { name: 'State Bank of India', price: 815.00, exchange: 'NSE' },
   'LT': { name: 'Larsen & Toubro Ltd', price: 3620.00, exchange: 'NSE' },
   'LT.NS': { name: 'Larsen & Toubro Ltd', price: 3620.00, exchange: 'NSE' },
+  'HINDUNILVR': { name: 'Hindustan Unilever Ltd', price: 2780.00, exchange: 'NSE' },
+  'BAJFINANCE': { name: 'Bajaj Finance Ltd', price: 7420.00, exchange: 'NSE' },
+  'BAJAJFINSV': { name: 'Bajaj Finserv Ltd', price: 1890.00, exchange: 'NSE' },
+  'KOTAKBANK': { name: 'Kotak Mahindra Bank Ltd', price: 1845.00, exchange: 'NSE' },
+  'AXISBANK': { name: 'Axis Bank Ltd', price: 1210.00, exchange: 'NSE' },
+  'MARUTI': { name: 'Maruti Suzuki India Ltd', price: 12450.00, exchange: 'NSE' },
+  'SUNPHARMA': { name: 'Sun Pharmaceutical Industries Ltd', price: 1890.00, exchange: 'NSE' },
+  'TITAN': { name: 'Titan Company Ltd', price: 3750.00, exchange: 'NSE' },
+  'ULTRACEMCO': { name: 'UltraTech Cement Ltd', price: 11450.00, exchange: 'NSE' },
+  'WIPRO': { name: 'Wipro Ltd', price: 545.00, exchange: 'NSE' },
+  'POWERGRID': { name: 'Power Grid Corporation of India Ltd', price: 345.00, exchange: 'NSE' },
+  'NTPC': { name: 'NTPC Ltd', price: 415.00, exchange: 'NSE' },
+  'ONGC': { name: 'Oil & Natural Gas Corporation Ltd', price: 310.00, exchange: 'NSE' },
+  'TATASTEEL': { name: 'Tata Steel Ltd', price: 155.00, exchange: 'NSE' },
+  'JSWSTEEL': { name: 'JSW Steel Ltd', price: 980.00, exchange: 'NSE' },
+  'ADANIENT': { name: 'Adani Enterprises Ltd', price: 3040.00, exchange: 'NSE' },
+  'ADANIPORTS': { name: 'Adani Ports & SEZ Ltd', price: 1420.00, exchange: 'NSE' },
+  'COALINDIA': { name: 'Coal India Ltd', price: 510.00, exchange: 'NSE' },
+  'M&M': { name: 'Mahindra & Mahindra Ltd', price: 2950.00, exchange: 'NSE' },
+  'ASIANPAINT': { name: 'Asian Paints Ltd', price: 3150.00, exchange: 'NSE' },
+  'HCLTECH': { name: 'HCL Technologies Ltd', price: 1780.00, exchange: 'NSE' },
+  'NESTLEIND': { name: 'Nestle India Ltd', price: 2540.00, exchange: 'NSE' },
+  'DRREDDY': { name: "Dr. Reddy's Laboratories Ltd", price: 6720.00, exchange: 'NSE' },
+  'CIPLA': { name: 'Cipla Ltd', price: 1610.00, exchange: 'NSE' },
+  'BEL': { name: 'Bharat Electronics Ltd', price: 305.00, exchange: 'NSE' },
+  'HAL': { name: 'Hindustan Aeronautics Ltd', price: 4680.00, exchange: 'NSE' },
+  'ZOMATO': { name: 'Zomato Ltd', price: 265.00, exchange: 'NSE' },
+  'JIOFIN': { name: 'Jio Financial Services Ltd', price: 340.00, exchange: 'NSE' },
   'NIFTYBEES': { name: 'Nippon India Nifty 50 BeES ETF', price: 275.50, exchange: 'NSE' },
   'NIFTYBEES.NS': { name: 'Nippon India Nifty 50 BeES ETF', price: 275.50, exchange: 'NSE' },
+  'BANKBEES': { name: 'Nippon India ETF Bank BeES', price: 545.00, exchange: 'NSE' },
   'GOLDBEES': { name: 'Nippon India Gold BeES ETF', price: 62.40, exchange: 'NSE' },
-  'GOLDBEES.NS': { name: 'Nippon India Gold BeES ETF', price: 62.40, exchange: 'NSE' }
+  'GOLDBEES.NS': { name: 'Nippon India Gold BeES ETF', price: 62.40, exchange: 'NSE' },
+  'SILVERBEES': { name: 'Nippon India Silver BeES ETF', price: 88.50, exchange: 'NSE' },
+  'MON100': { name: 'Motilal Oswal Nasdaq 100 ETF', price: 172.00, exchange: 'NSE' },
+  'ITBEES': { name: 'Nippon India ETF Nifty IT', price: 42.50, exchange: 'NSE' }
 };
 
 /**
  * Fetch latest NAV for an Indian Mutual Fund via AMFI Scheme Code
  * Uses the free public API: https://api.mfapi.in/mf/{scheme_code}
  */
-export async function fetchMutualFundNav(schemeCode) {
-  if (!schemeCode) return null;
-  const cleanCode = String(schemeCode).trim();
+export async function fetchMutualFundNav(schemeCodeOrName) {
+  if (!schemeCodeOrName) return null;
+  const cleanCode = String(schemeCodeOrName).trim();
 
+  // If numerical AMFI code
+  if (/^\d{5,7}$/.test(cleanCode)) {
+    try {
+      const res = await fetch(`https://api.mfapi.in/mf/${cleanCode}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.data && json.data.length > 0) {
+          const latest = json.data[0];
+          return {
+            schemeCode: cleanCode,
+            name: json.meta?.scheme_name || `Scheme ${cleanCode}`,
+            nav: parseFloat(latest.nav),
+            date: latest.date,
+            fundHouse: json.meta?.fund_house,
+            category: json.meta?.scheme_category
+          };
+        }
+      }
+    } catch (err) {
+      console.warn(`MF NAV fetch failed for ${cleanCode}:`, err.message);
+    }
+  }
+
+  // If text query, attempt to search AMFI catalog for the best match
   try {
-    const res = await fetch(`https://api.mfapi.in/mf/${cleanCode}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    const json = await res.json();
-
-    if (json?.data && json.data.length > 0) {
-      const latest = json.data[0];
-      return {
-        schemeCode: cleanCode,
-        name: json.meta?.scheme_name || `Scheme ${cleanCode}`,
-        nav: parseFloat(latest.nav),
-        date: latest.date,
-        fundHouse: json.meta?.fund_house,
-        category: json.meta?.scheme_category
-      };
+    const searchResults = await searchMutualFunds(cleanCode);
+    if (searchResults && searchResults.length > 0) {
+      const bestCode = searchResults[0].schemeCode;
+      const res = await fetch(`https://api.mfapi.in/mf/${bestCode}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.data && json.data.length > 0) {
+          const latest = json.data[0];
+          return {
+            schemeCode: bestCode,
+            name: json.meta?.scheme_name || searchResults[0].schemeName,
+            nav: parseFloat(latest.nav),
+            date: latest.date,
+            fundHouse: json.meta?.fund_house,
+            category: json.meta?.scheme_category
+          };
+        }
+      }
     }
   } catch (err) {
-    console.warn(`MF NAV fetch failed for ${cleanCode}:`, err.message);
+    console.warn('MF search fallback notice:', err.message);
   }
+
   return null;
 }
 
@@ -145,29 +206,50 @@ export async function fetchStockPrice(symbol) {
  */
 export function calculateHoldingMetrics(holding) {
   const units = Number(holding.units || 0);
-  const investedAmount = Number(holding.invested_amount || 0);
-  const currentPrice = Number(holding.current_price || 0);
+  let investedAmount = Number(holding.invested_amount || 0);
+  let currentPrice = Number(holding.current_price || 0);
 
-  // Calculate avg buy price if not given
-  const avgBuyPrice = units > 0 ? (investedAmount / units) : Number(holding.avg_buy_price || 0);
+  // Calculate avg buy price if not explicitly given
+  let avgBuyPrice = Number(holding.avg_buy_price || 0);
+  if (avgBuyPrice <= 0 && units > 0 && investedAmount > 0) {
+    avgBuyPrice = investedAmount / units;
+  }
 
-  // Current value = units * current_price
-  const currentValue = units > 0 && currentPrice > 0 
-    ? (units * currentPrice) 
-    : Number(holding.current_value || investedAmount);
+  // If investedAmount is 0 but we have units and avgBuyPrice
+  if (investedAmount <= 0 && units > 0 && avgBuyPrice > 0) {
+    investedAmount = units * avgBuyPrice;
+  }
+
+  // If current price is 0 or missing, fallback to avgBuyPrice so prices never display as ₹0.00
+  if (currentPrice <= 0) {
+    if (avgBuyPrice > 0) {
+      currentPrice = avgBuyPrice;
+    } else if (units > 0 && Number(holding.current_value || 0) > 0) {
+      currentPrice = Number(holding.current_value) / units;
+    }
+  }
+
+  // Current value = units * current_price (fallback to stored current_value or investedAmount)
+  let currentValue = (units > 0 && currentPrice > 0)
+    ? (units * currentPrice)
+    : (Number(holding.current_value) || investedAmount);
+
+  if (currentValue <= 0 && investedAmount > 0) {
+    currentValue = investedAmount;
+  }
 
   // Unrealized P&L
   const unrealizedPnl = currentValue - investedAmount;
-  const unrealizedPnlPercent = investedAmount > 0 
-    ? ((unrealizedPnl / investedAmount) * 100) 
+  const unrealizedPnlPercent = investedAmount > 0
+    ? ((unrealizedPnl / investedAmount) * 100)
     : 0;
 
   return {
     ...holding,
     units,
-    invested_amount: investedAmount,
-    avg_buy_price: parseFloat(avgBuyPrice.toFixed(2)),
-    current_price: currentPrice,
+    invested_amount: parseFloat(investedAmount.toFixed(2)),
+    avg_buy_price: parseFloat((avgBuyPrice || currentPrice).toFixed(2)),
+    current_price: parseFloat(currentPrice.toFixed(2)),
     current_value: parseFloat(currentValue.toFixed(2)),
     unrealized_pnl: parseFloat(unrealizedPnl.toFixed(2)),
     unrealized_pnl_percent: parseFloat(unrealizedPnlPercent.toFixed(2))

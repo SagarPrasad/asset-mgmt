@@ -48,14 +48,30 @@ export const InvestmentSection = ({
     return matchesMember(inv.member_id, activeMemberId, data.members || []);
   });
 
-  // Calculate Demat Holdings Totals
-  const totalInvestedAmount = dematHoldings.reduce((sum, h) => sum + Number(h.invested_amount || 0), 0);
-  const totalCurrentDematValue = dematHoldings.reduce((sum, h) => {
+  // Detect any macro Demat / Brokerage accounts listed in investments (e.g. Zerodha, Groww, Angel One)
+  const macroDematAccounts = filteredInvestments.filter(inv => {
+    const cat = (inv.category || '').toLowerCase();
+    const inst = (inv.institution || '').toLowerCase();
+    return cat.includes('demat') || cat.includes('share') || cat.includes('stock') ||
+           inst.includes('demat') || inst.includes('zerodha') || inst.includes('groww') || inst.includes('upstox') || inst.includes('angel');
+  });
+
+  const macroDematTotal = macroDematAccounts.reduce((acc, inv) => {
+    const val = inv.values?.[activeFy.id] ?? inv.values?.['fy_25_26'] ?? inv.current_value ?? 0;
+    return acc + Number(val);
+  }, 0);
+
+  // Calculate Demat Holdings Totals (combines itemized holdings and macro platform accounts)
+  const totalItemizedInvested = dematHoldings.reduce((sum, h) => sum + Number(h.invested_amount || 0), 0);
+  const totalItemizedCurrentValue = dematHoldings.reduce((sum, h) => {
     const units = Number(h.units || 0);
     const price = Number(h.current_price || 0);
     const val = (units > 0 && price > 0) ? (units * price) : (Number(h.current_value) || Number(h.invested_amount || 0));
     return sum + val;
   }, 0);
+
+  const totalInvestedAmount = totalItemizedInvested + macroDematTotal;
+  const totalCurrentDematValue = totalItemizedCurrentValue + macroDematTotal;
   const totalDematPnl = totalCurrentDematValue - totalInvestedAmount;
   const totalDematPnlPercent = totalInvestedAmount > 0 ? ((totalDematPnl / totalInvestedAmount) * 100) : 0;
 
@@ -114,6 +130,31 @@ export const InvestmentSection = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            {onRefreshCloud && (
+              <button
+                onClick={onRefreshCloud}
+                disabled={isSyncingCloud}
+                className="btn-secondary"
+                title="Fetch latest demat holdings directly from Supabase DB"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  borderColor: isSyncingCloud ? 'rgba(56, 189, 248, 0.5)' : undefined
+                }}
+              >
+                <RefreshCw
+                  size={14}
+                  color="#38bdf8"
+                  className={isSyncingCloud ? 'animate-spin' : ''}
+                  style={{
+                    animation: isSyncingCloud ? 'spin 1s linear infinite' : 'none'
+                  }}
+                />
+                <span>{isSyncingCloud ? 'Syncing...' : 'Sync Cloud'}</span>
+              </button>
+            )}
+
             <button
               onClick={handleRefreshLivePrices}
               disabled={isRefreshingPrices}
@@ -239,6 +280,32 @@ export const InvestmentSection = ({
           </div>
         </div>
 
+        {/* Macro Brokerage Platform Banner if detected */}
+        {macroDematAccounts.length > 0 && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0.75rem 1rem',
+            background: 'rgba(56, 189, 248, 0.08)',
+            border: '1px solid rgba(56, 189, 248, 0.25)',
+            borderRadius: '10px',
+            marginBottom: '1.25rem',
+            flexWrap: 'wrap',
+            gap: '0.5rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span className="badge-purple" style={{ fontSize: '11px' }}>Linked Brokerage Platforms</span>
+              <span style={{ fontSize: '0.8125rem', color: '#e2e8f0', fontWeight: 600 }}>
+                {macroDematAccounts.map(a => a.institution || a.title).join(', ')}
+              </span>
+            </div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#38bdf8', fontFamily: 'var(--font-mono)' }}>
+              Platform Balance: {formatINR(macroDematTotal, privacyMode)}
+            </div>
+          </div>
+        )}
+
         {/* Demat Holdings Table */}
         <div className="table-container">
           <table className="custom-table">
@@ -259,7 +326,18 @@ export const InvestmentSection = ({
               {dematHoldings.length === 0 ? (
                 <tr>
                   <td colSpan="9" style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
-                    No stocks or mutual funds added yet. Click <strong>"+ Add Stock / Fund"</strong> to start tracking!
+                    {macroDematAccounts.length > 0 ? (
+                      <div>
+                        <div style={{ fontWeight: 600, color: '#f8fafc', marginBottom: '0.35rem', fontSize: '0.9375rem' }}>
+                          Linked Demat Account{macroDematAccounts.length > 1 ? 's' : ''} Active ({macroDematAccounts.map(a => a.institution).join(', ')})
+                        </div>
+                        <div style={{ fontSize: '0.8125rem', color: '#38bdf8' }}>
+                          Total Platform Balance: <strong>{formatINR(macroDematTotal, privacyMode)}</strong> • Click <strong>"+ Add Stock / Fund"</strong> above to itemize individual equities & mutual funds.
+                        </div>
+                      </div>
+                    ) : (
+                      <span>No stocks or mutual funds added yet. Click <strong>"+ Add Stock / Fund"</strong> to start tracking!</span>
+                    )}
                   </td>
                 </tr>
               ) : (

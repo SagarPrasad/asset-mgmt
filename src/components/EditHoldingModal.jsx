@@ -145,18 +145,30 @@ export const EditHoldingModal = ({
 
   // Preview Calculations
   const unitsNum = parseFloat(formData.units) || 0;
-  const investedNum = parseFloat(formData.invested_amount) || 0;
-  const currentPriceNum = parseFloat(formData.current_price) || 0;
-  const avgBuyPrice = unitsNum > 0 ? (investedNum / unitsNum) : 0;
-  const currentValue = unitsNum * currentPriceNum;
+  let investedNum = parseFloat(formData.invested_amount) || 0;
+  let currentPriceNum = parseFloat(formData.current_price) || 0;
+  let avgBuyPrice = unitsNum > 0 ? (investedNum / unitsNum) : 0;
+  if (currentPriceNum <= 0 && avgBuyPrice > 0) {
+    currentPriceNum = avgBuyPrice;
+  }
+  if (investedNum <= 0 && unitsNum > 0 && currentPriceNum > 0) {
+    investedNum = unitsNum * currentPriceNum;
+  }
+  const currentValue = (unitsNum > 0 && currentPriceNum > 0)
+    ? (unitsNum * currentPriceNum)
+    : (currentPriceNum > 0 ? currentPriceNum : investedNum);
   const unrealizedPnl = currentValue - investedNum;
   const unrealizedPnlPercent = investedNum > 0 ? ((unrealizedPnl / investedNum) * 100) : 0;
 
   const handleSubmit = (e) => {
     e.preventDefault();
 
+    const generatedId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `dh_${Date.now()}`;
+
     const holdingObj = calculateHoldingMetrics({
-      id: isCreating ? `dh_${Date.now()}` : holding.id,
+      id: isCreating ? generatedId : holding.id,
       name: formData.name.trim(),
       symbol: formData.symbol.trim().toUpperCase(),
       category: formData.category,
