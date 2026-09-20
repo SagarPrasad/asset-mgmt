@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Users, PlusCircle } from 'lucide-react';
+import { Calendar, Users, PlusCircle, Trash2 } from 'lucide-react';
 
 export const SubNavbar = ({
   financialYears,
@@ -9,8 +9,11 @@ export const SubNavbar = ({
   activeMemberId,
   onSelectMember,
   onOpenAddModal,
-  onOpenAddFyModal
+  onOpenAddFyModal,
+  onDeleteFinancialYear
 }) => {
+  const canDelete = financialYears && financialYears.length > 1;
+
   return (
     <div className="sub-bar">
       {/* Financial Year Selector */}
@@ -20,27 +23,80 @@ export const SubNavbar = ({
           <span>FINANCIAL YEAR:</span>
         </div>
         <div className="fy-pills">
-          {financialYears.map((fy) => (
-            <button
-              key={fy.id}
-              onClick={() => onSelectFy(fy.id)}
-              className={`fy-pill ${activeFyId === fy.id ? 'active' : ''}`}
-            >
-              {fy.label}
-              {fy.is_current && (
-                <span style={{
-                  marginLeft: '6px',
-                  fontSize: '9px',
-                  padding: '1px 5px',
-                  borderRadius: '4px',
-                  background: 'rgba(16, 185, 129, 0.2)',
-                  color: '#34d399'
-                }}>
-                  Latest
-                </span>
-              )}
-            </button>
-          ))}
+          {financialYears.map((fy) => {
+            const isActive = activeFyId === fy.id;
+
+            return (
+              <div
+                key={fy.id}
+                style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}
+                className="fy-pill-wrapper"
+              >
+                <button
+                  onClick={() => onSelectFy(fy.id)}
+                  className={`fy-pill ${isActive ? 'active' : ''}`}
+                  style={{
+                    paddingRight: (canDelete && onDeleteFinancialYear) ? '1.75rem' : undefined,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>{fy.label}</span>
+                  {fy.is_current && (
+                    <span style={{
+                      fontSize: '9px',
+                      padding: '1px 5px',
+                      borderRadius: '4px',
+                      background: 'rgba(16, 185, 129, 0.2)',
+                      color: '#34d399'
+                    }}>
+                      Latest
+                    </span>
+                  )}
+                </button>
+
+                {canDelete && onDeleteFinancialYear && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteFinancialYear(fy);
+                    }}
+                    title={`Delete ${fy.label} and purge recorded balances`}
+                    className="fy-delete-btn"
+                    style={{
+                      position: 'absolute',
+                      right: '4px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'transparent',
+                      border: 'none',
+                      color: isActive ? '#f87171' : '#64748b',
+                      padding: '2px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity: isActive ? 0.85 : 0.45,
+                      transition: 'opacity 0.2s, color 0.2s',
+                      zIndex: 2
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.opacity = '1';
+                      e.currentTarget.style.color = '#ef4444';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.opacity = isActive ? '0.85' : '0.45';
+                      e.currentTarget.style.color = isActive ? '#f87171' : '#64748b';
+                    }}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
           {/* Add Next FY Button */}
           {onOpenAddFyModal && (
             <button

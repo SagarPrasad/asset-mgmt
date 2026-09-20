@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Calendar, Copy, CheckCircle2, Sparkles } from 'lucide-react';
+import { X, Calendar, Copy, CheckCircle2, Sparkles, Trash2 } from 'lucide-react';
 import { saveLocalData, syncDataToSupabase } from '../services/dataService';
 import { getSupabaseClient } from '../lib/supabaseClient';
 
@@ -11,7 +11,8 @@ export const AddFinancialYearModal = ({
   activeFy,
   setActiveFyId,
   user,
-  masterPassword
+  masterPassword,
+  onDeleteFinancialYear
 }) => {
   if (!isOpen) return null;
 
@@ -117,10 +118,10 @@ export const AddFinancialYearModal = ({
             </div>
             <div>
               <h2 style={{ fontSize: '1.25rem', fontWeight: 700, fontFamily: 'var(--font-display)' }}>
-                Add Next Financial Year
+                Financial Year Management
               </h2>
               <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                Create a new yearly period and carry forward your previous asset balances.
+                Add new financial periods or remove redundant historical years.
               </p>
             </div>
           </div>
@@ -199,7 +200,7 @@ export const AddFinancialYearModal = ({
             )}
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginBottom: '1.5rem' }}>
             <button type="button" onClick={onClose} className="btn-secondary">
               Cancel
             </button>
@@ -208,6 +209,68 @@ export const AddFinancialYearModal = ({
             </button>
           </div>
         </form>
+
+        {/* Existing Financial Years Management */}
+        <div style={{
+          paddingTop: '1.25rem',
+          borderTop: '1px solid var(--border-glass)'
+        }}>
+          <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#94a3b8', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>MANAGE EXISTING FINANCIAL YEARS ({existingYears.length})</span>
+            {existingYears.length <= 1 && (
+              <span style={{ fontSize: '0.6875rem', color: '#64748b' }}>Minimum 1 FY required</span>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
+            {existingYears.map((fy) => (
+              <div
+                key={fy.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0.6rem 0.85rem',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border-glass)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.8125rem', color: '#f8fafc' }}>{fy.label}</span>
+                  <span style={{ fontSize: '0.6875rem', color: '#94a3b8' }}>As of {fy.as_on_date}</span>
+                  {fy.is_current && (
+                    <span style={{
+                      fontSize: '9px',
+                      padding: '1px 5px',
+                      borderRadius: '4px',
+                      background: 'rgba(16, 185, 129, 0.2)',
+                      color: '#34d399'
+                    }}>
+                      Latest
+                    </span>
+                  )}
+                </div>
+
+                {existingYears.length > 1 && onDeleteFinancialYear ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onDeleteFinancialYear(fy);
+                    }}
+                    title={`Delete ${fy.label} and purge recorded balances`}
+                    className="btn-icon"
+                    style={{ color: '#f87171', width: 28, height: 28 }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                ) : (
+                  <span style={{ fontSize: '0.6875rem', color: '#64748b' }}>Protected</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

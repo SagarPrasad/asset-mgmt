@@ -542,6 +542,20 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
 
   try {
     switch (assetCategory) {
+      case 'financialYear': {
+        const fyLabel = (item.label || item.id || "").trim();
+        const { data: fyRows } = await supabase
+          .from('financial_years')
+          .select('id, label')
+          .eq('user_id', userId);
+
+        const targetFy = (fyRows || []).find(f => (f.label || "").trim().toLowerCase() === fyLabel.toLowerCase());
+        if (targetFy) {
+          await supabase.from('bank_snapshots').delete().eq('financial_year_id', targetFy.id);
+          await supabase.from('financial_years').delete().eq('id', targetFy.id);
+        }
+        break;
+      }
       case 'dematHolding': {
         let deleted = false;
         if (item.id && isValidUuid(item.id)) {
@@ -749,7 +763,21 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
     return memberIdMap[resolvedLocalId] || resolvedLocalId || null;
   };
 
-  // 2. Sync Financial Years
+  // 2. Sync Financial Years (with automated pruning of deleted years)
+  const { data: existingFys } = await supabase
+    .from('financial_years')
+    .select('id, label')
+    .eq('user_id', userId);
+
+  if (existingFys && existingFys.length > 0) {
+    const activeLabels = new Set((data.financialYears || []).map(f => (f.label || "").trim().toLowerCase()));
+    const staleFys = existingFys.filter(ef => !activeLabels.has((ef.label || "").trim().toLowerCase()));
+    for (const stale of staleFys) {
+      await supabase.from('bank_snapshots').delete().eq('financial_year_id', stale.id);
+      await supabase.from('financial_years').delete().eq('id', stale.id);
+    }
+  }
+
   for (const fy of (data.financialYears || [])) {
     await supabase.from('financial_years').upsert({
       label: fy.label,

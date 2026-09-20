@@ -345,6 +345,60 @@ export function App() {
     });
   };
 
+  const handleDeleteFinancialYear = (fyToDelete) => {
+    if (!fyToDelete) return;
+    const existingYears = data.financialYears || [];
+    if (existingYears.length <= 1) {
+      alert('Cannot delete the only remaining financial year. You must retain at least one financial year.');
+      return;
+    }
+
+    handleOpenDeleteAsset(
+      fyToDelete.label,
+      'Financial Year & Snapshots',
+      async () => {
+        const remainingFys = existingYears.filter(fy => fy.id !== fyToDelete.id);
+
+        // If the deleted FY was active, switch to the latest remaining FY
+        if (activeFyId === fyToDelete.id) {
+          const nextActive = remainingFys[remainingFys.length - 1];
+          if (nextActive) {
+            setActiveFyId(nextActive.id);
+          }
+        }
+
+        // If the deleted FY was marked as is_current, ensure the latest remaining is current
+        const hasCurrent = remainingFys.some(f => f.is_current);
+        if (!hasCurrent && remainingFys.length > 0) {
+          remainingFys[remainingFys.length - 1].is_current = true;
+        }
+
+        // Clean up bank account snapshots for this FY
+        const updatedBanks = (data.bankAccounts || []).map(b => {
+          if (!b.snapshots || !b.snapshots[fyToDelete.id]) return b;
+          const { [fyToDelete.id]: removed, ...restSnaps } = b.snapshots;
+          return { ...b, snapshots: restSnaps };
+        });
+
+        // Clean up investment valuations for this FY
+        const updatedInvs = (data.investments || []).map(inv => {
+          if (!inv.values || inv.values[fyToDelete.id] === undefined) return inv;
+          const { [fyToDelete.id]: removed, ...restVals } = inv.values;
+          return { ...inv, values: restVals };
+        });
+
+        return {
+          ...data,
+          financialYears: remainingFys,
+          bankAccounts: updatedBanks,
+          investments: updatedInvs
+        };
+      },
+      fyToDelete,
+      'financialYear'
+    );
+  };
+
   const handleOpenViewCredentials = (credObj) => {
     setSecretModal({
       isOpen: true,
@@ -500,6 +554,7 @@ export function App() {
         onSelectMember={setActiveMemberId}
         onOpenAddModal={() => handleOpenAddModal('bank')}
         onOpenAddFyModal={() => setIsAddFyModalOpen(true)}
+        onDeleteFinancialYear={handleDeleteFinancialYear}
       />
 
       {/* Main Content Area */}
@@ -674,6 +729,7 @@ export function App() {
         setActiveFyId={setActiveFyId}
         user={user}
         masterPassword={masterPassword}
+        onDeleteFinancialYear={handleDeleteFinancialYear}
       />
 
       {/* Edit Asset Modal */}
