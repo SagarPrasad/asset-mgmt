@@ -12,7 +12,8 @@ import {
   Bell,
   Crown,
   ChevronDown,
-  FileSpreadsheet
+  FileSpreadsheet,
+  RefreshCw
 } from 'lucide-react';
 import { exportToExcel, exportToJsonBackup } from '../services/dataService';
 import { isPrimaryHolder } from '../utils/authConfig';
@@ -32,7 +33,9 @@ export const Navbar = ({
   onOpenReminders,
   upcomingRemindersCount = 0,
   theme,
-  setTheme
+  setTheme,
+  onRefreshCloud,
+  isSyncingCloud = false
 }) => {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const exportMenuRef = useRef(null);
@@ -100,6 +103,30 @@ export const Navbar = ({
 
       {/* Streamlined Executive Action Controls */}
       <div className="header-actions" style={{ gap: '0.5rem' }}>
+        {/* Cloud DB Refresh Button */}
+        {onRefreshCloud && (
+          <button
+            onClick={onRefreshCloud}
+            disabled={isSyncingCloud}
+            className={`nav-btn-compact ${isSyncingCloud ? 'active-sync' : ''}`}
+            title="Fetch latest records directly from Supabase DB"
+            style={{
+              borderColor: isSyncingCloud ? 'rgba(56, 189, 248, 0.5)' : undefined,
+              background: isSyncingCloud ? 'rgba(56, 189, 248, 0.1)' : undefined
+            }}
+          >
+            <RefreshCw
+              size={14}
+              color="#38bdf8"
+              className={isSyncingCloud ? 'animate-spin' : ''}
+              style={{
+                animation: isSyncingCloud ? 'spin 1s linear infinite' : 'none'
+              }}
+            />
+            <span>{isSyncingCloud ? 'Syncing...' : 'Sync Cloud'}</span>
+          </button>
+        )}
+
         {/* Privacy Mask Pill */}
         <button
           onClick={() => setPrivacyMode(!privacyMode)}

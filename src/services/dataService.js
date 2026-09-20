@@ -299,11 +299,14 @@ export const loadInitialData = async (user, masterPassword) => {
           })
         );
 
-        // Deduplicate investments by institution
+        // Deduplicate investments by UUID or composite key (institution + account_identifier + member_id)
         const seenInvs = new Map();
         const dedupedInvestments = [];
         for (const inv of decryptedInvestments) {
-          const key = (inv.institution || '').trim().toLowerCase();
+          const normInst = (inv.institution || '').trim().toLowerCase();
+          const normAcc = (inv.account_identifier || '').trim().toLowerCase();
+          const memberId = inv.member_id || '';
+          const key = (inv.id && isValidUuid(inv.id)) ? inv.id : `${normInst}_${normAcc}_${memberId}`;
           if (!seenInvs.has(key)) {
             seenInvs.set(key, inv);
             dedupedInvestments.push(inv);
@@ -954,11 +957,8 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
 
     if (existingInvs && existingInvs.length > 0) {
       const currentIds = new Set(data.investments.map(i => i.id).filter(Boolean));
-      const currentInsts = new Set(data.investments.map(i => (i.institution || '').toLowerCase().trim()).filter(Boolean));
       const staleInvs = existingInvs.filter(ex => {
-        const idMatch = currentIds.has(ex.id);
-        const instMatch = currentInsts.has((ex.institution || '').toLowerCase().trim());
-        return !idMatch && !instMatch;
+        return currentIds.size > 0 && !currentIds.has(ex.id);
       });
       for (const stale of staleInvs) {
         await supabase.from('investments').delete().eq('user_id', userId).eq('id', stale.id);
@@ -990,15 +990,29 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
         member_id: memberId,
         user_id: userId
       };
+
       if (inv.id && isValidUuid(inv.id)) {
         invPayload.id = inv.id;
-      }
-      let invRes = await supabase.from('investments').upsert(invPayload, { onConflict: 'user_id,institution' });
-      if (invRes.error) {
-        delete invPayload.pin_hint;
-        delete invPayload.login_user;
-        delete invPayload.login_password;
-        await supabase.from('investments').upsert(invPayload, { onConflict: 'user_id,institution' });
+        let invRes = await supabase.from('investments').upsert(invPayload, { onConflict: 'id' });
+        if (invRes.error) {
+          delete invPayload.pin_hint;
+          delete invPayload.login_user;
+          delete invPayload.login_password;
+          await supabase.from('investments').upsert(invPayload, { onConflict: 'id' });
+        }
+      } else {
+        let invRes = await supabase.from('investments').insert(invPayload).select().single();
+        if (invRes.error) {
+          delete invPayload.pin_hint;
+          delete invPayload.login_user;
+          delete invPayload.login_password;
+          const retryRes = await supabase.from('investments').insert(invPayload).select().single();
+          if (retryRes.data?.id) {
+            inv.id = retryRes.data.id;
+          }
+        } else if (invRes.data?.id) {
+          inv.id = invRes.data.id;
+        }
       }
     }
   }

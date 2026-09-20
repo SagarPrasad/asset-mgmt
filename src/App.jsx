@@ -7,7 +7,10 @@ import {
   ShieldCheck,
   Building2,
   Car,
-  CreditCard
+  CreditCard,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { SubNavbar } from './components/SubNavbar';
@@ -34,7 +37,10 @@ import { UnauthorizedScreen } from './components/UnauthorizedScreen';
 import { loadInitialData, getFreshSeedData, saveLocalData, syncDataToSupabase, deleteAssetFromSupabase } from './services/dataService';
 import { getSupabaseClient, resetSupabaseClient, signInWithGoogle, signOut } from './lib/supabaseClient';
 import { calculateFinancialYearTotals } from './utils/formatters';
-import { isEmailAuthorized } from './utils/authConfig';
+import { isEmailAuthorized, hasMasterPasswordSet, getMasterPasswordVerification } from './utils/authConfig';
+import { verifyPasswordWithToken } from './utils/crypto';
+
+const SESSION_VAULT_PWD_KEY = 'family_vault_session_master_pwd';
 import { getUpcomingInsuranceReminders } from './utils/reminderHelper';
 
 export function App() {
@@ -84,6 +90,8 @@ export function App() {
   const [isVaultUnlocked, setIsVaultUnlocked] = useState(false);
   const [isSupabaseConnected, setIsSupabaseConnected] = useState(false);
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [cloudSyncFeedback, setCloudSyncFeedback] = useState(null);
 
   // Modals State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -176,6 +184,33 @@ export function App() {
     }
   }, []);
 
+  // Auto-restore master password from sessionStorage if valid and present (survives normal page refresh)
+  useEffect(() => {
+    let isMounted = true;
+    const attemptSessionAutoUnlock = async () => {
+      if (!user || isVaultUnlocked) return;
+      try {
+        const cachedPwd = sessionStorage.getItem(SESSION_VAULT_PWD_KEY);
+        if (cachedPwd && hasMasterPasswordSet()) {
+          const storedVerifier = getMasterPasswordVerification();
+          const isValid = await verifyPasswordWithToken(cachedPwd, storedVerifier);
+          if (isValid && isMounted) {
+            setMasterPassword(cachedPwd);
+            setIsVaultUnlocked(true);
+            await loadUserData(user, cachedPwd);
+          } else {
+            sessionStorage.removeItem(SESSION_VAULT_PWD_KEY);
+          }
+        }
+      } catch (e) {
+        console.warn('Session auto-unlock error:', e);
+        sessionStorage.removeItem(SESSION_VAULT_PWD_KEY);
+      }
+    };
+    attemptSessionAutoUnlock();
+    return () => { isMounted = false; };
+  }, [user]);
+
   const loadUserData = async (currentUser, pwd) => {
     setIsLoading(true);
     try {
@@ -185,6 +220,24 @@ export function App() {
       console.error('Failed to load user data:', e);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleRefreshFromCloud = async () => {
+    if (isSyncingCloud || !user) return;
+    setIsSyncingCloud(true);
+    setCloudSyncFeedback({ type: 'info', message: 'Fetching latest data from Supabase...' });
+    try {
+      const fresh = await loadInitialData(user, masterPassword);
+      setData(fresh);
+      setCloudSyncFeedback({ type: 'success', message: 'Synced latest records from Supabase DB!' });
+      setTimeout(() => setCloudSyncFeedback(null), 3500);
+    } catch (err) {
+      console.error('Failed to sync latest from cloud:', err);
+      setCloudSyncFeedback({ type: 'error', message: `Sync failed: ${err.message || 'Network error'}` });
+      setTimeout(() => setCloudSyncFeedback(null), 5000);
+    } finally {
+      setIsSyncingCloud(false);
     }
   };
 
@@ -205,6 +258,7 @@ export function App() {
 
   const handleSignOut = async () => {
     try {
+      sessionStorage.removeItem(SESSION_VAULT_PWD_KEY);
       await signOut();
       setUser(null);
       setIsVaultUnlocked(false);
@@ -227,6 +281,11 @@ export function App() {
   };
 
   const handleUnlockVault = async (pwd) => {
+    try {
+      sessionStorage.setItem(SESSION_VAULT_PWD_KEY, pwd);
+    } catch (e) {
+      console.warn('Failed to store session vault pwd:', e);
+    }
     setMasterPassword(pwd);
     setIsVaultUnlocked(true);
     await loadUserData(user, pwd);
@@ -241,6 +300,9 @@ export function App() {
   };
 
   const handleLockVault = () => {
+    try {
+      sessionStorage.removeItem(SESSION_VAULT_PWD_KEY);
+    } catch {}
     setIsVaultUnlocked(false);
     setMasterPassword(null);
   };
@@ -424,6 +486,8 @@ export function App() {
         upcomingRemindersCount={upcomingReminders.length}
         theme={theme}
         setTheme={setTheme}
+        onRefreshCloud={handleRefreshFromCloud}
+        isSyncingCloud={isSyncingCloud}
       />
 
       {/* Sub Navbar with FY & Member Switcher and + Next FY button */}
@@ -515,6 +579,8 @@ export function App() {
             onViewCredentials={handleOpenViewCredentials}
             onOpenAddHolding={() => setHoldingModal({ isOpen: true, holding: null })}
             onEditHolding={(h) => setHoldingModal({ isOpen: true, holding: h })}
+            onRefreshCloud={handleRefreshFromCloud}
+            isSyncingCloud={isSyncingCloud}
           />
         )}
 
@@ -672,6 +738,35 @@ export function App() {
         user={user}
         masterPassword={masterPassword}
       />
+
+      {/* Cloud Sync Floating Toast Feedback */}
+      {cloudSyncFeedback && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.65rem',
+          padding: '0.75rem 1.25rem',
+          borderRadius: '12px',
+          background: cloudSyncFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.95)' : 'rgba(15, 23, 42, 0.95)',
+          color: '#ffffff',
+          boxShadow: '0 10px 25px rgba(0,0,0,0.4)',
+          border: '1px solid ' + (cloudSyncFeedback.type === 'error' ? 'rgba(239, 68, 68, 0.4)' : 'rgba(56, 189, 248, 0.3)'),
+          fontSize: '0.85rem',
+          fontWeight: 600,
+          backdropFilter: 'blur(10px)'
+        }}>
+          {cloudSyncFeedback.type === 'error' ? (
+            <AlertCircle size={18} color="#fca5a5" />
+          ) : (
+            <CheckCircle2 size={18} color="#34d399" />
+          )}
+          <span>{cloudSyncFeedback.message}</span>
+        </div>
+      )}
     </div>
   );
 }

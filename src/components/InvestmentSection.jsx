@@ -31,7 +31,9 @@ export const InvestmentSection = ({
   onDeleteAsset,
   onViewCredentials,
   onOpenAddHolding,
-  onEditHolding
+  onEditHolding,
+  onRefreshCloud,
+  isSyncingCloud = false
 }) => {
   const [isRefreshingPrices, setIsRefreshingPrices] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState(null);
@@ -402,6 +404,30 @@ export const InvestmentSection = ({
                 {formatINR(totalRetirementValue, privacyMode)}
               </div>
             </div>
+            {onRefreshCloud && (
+              <button
+                onClick={onRefreshCloud}
+                disabled={isSyncingCloud}
+                className="btn-secondary"
+                title="Fetch latest retirement funds and assets from Supabase DB"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  borderColor: isSyncingCloud ? 'rgba(56, 189, 248, 0.5)' : undefined
+                }}
+              >
+                <RefreshCw
+                  size={14}
+                  color="#38bdf8"
+                  className={isSyncingCloud ? 'animate-spin' : ''}
+                  style={{
+                    animation: isSyncingCloud ? 'spin 1s linear infinite' : 'none'
+                  }}
+                />
+                <span>{isSyncingCloud ? 'Syncing...' : 'Sync Cloud'}</span>
+              </button>
+            )}
             <button
               onClick={() => onOpenAddModal('investment')}
               className="btn-secondary"
