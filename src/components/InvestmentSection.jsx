@@ -11,9 +11,11 @@ import {
   Shield,
   ArrowUpRight,
   ArrowDownRight,
-  Layers
+  Layers,
+  Sparkles,
+  ExternalLink
 } from 'lucide-react';
-import { formatINR, maskSensitive, matchesMember } from '../utils/formatters';
+import { formatINR, maskSensitive, matchesMember, getInvestmentValue } from '../utils/formatters';
 import { refreshAllHoldings } from '../services/marketPriceService';
 import { saveLocalData, syncDataToSupabase } from '../services/dataService';
 import { getSupabaseClient } from '../lib/supabaseClient';
@@ -33,7 +35,7 @@ export const InvestmentSection = ({
   onOpenAddHolding,
   onEditHolding,
   onRefreshCloud,
-  isSyncingCloud = false
+  isSyncingCloud
 }) => {
   const [isRefreshingPrices, setIsRefreshingPrices] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState(null);
@@ -43,22 +45,21 @@ export const InvestmentSection = ({
     return matchesMember(h.member_id, activeMemberId, data.members || []);
   });
 
-  // Filter macro investments (EPFO, NPS, Bonds) using matchesMember
+  // Filter macro investments (Demat accounts, EPFO, NPS, Bonds) using matchesMember
   const filteredInvestments = (data.investments || []).filter(inv => {
     return matchesMember(inv.member_id, activeMemberId, data.members || []);
   });
 
-  // Detect any macro Demat / Brokerage accounts listed in investments (e.g. Zerodha, Groww, Angel One)
+  // Detect any macro Demat / Brokerage accounts listed in investments (e.g. Zerodha, Groww, ICICI Demat, NSDL Demat)
   const macroDematAccounts = filteredInvestments.filter(inv => {
     const cat = (inv.category || '').toLowerCase();
     const inst = (inv.institution || '').toLowerCase();
     return cat.includes('demat') || cat.includes('share') || cat.includes('stock') ||
-           inst.includes('demat') || inst.includes('zerodha') || inst.includes('groww') || inst.includes('upstox') || inst.includes('angel');
+           inst.includes('demat') || inst.includes('zerodha') || inst.includes('groww') || inst.includes('upstox') || inst.includes('angel') || inst.includes('icici direct');
   });
 
   const macroDematTotal = macroDematAccounts.reduce((acc, inv) => {
-    const val = inv.values?.[activeFy.id] ?? inv.values?.['fy_25_26'] ?? inv.current_value ?? 0;
-    return acc + Number(val);
+    return acc + getInvestmentValue(inv, activeFy.id);
   }, 0);
 
   // Calculate Demat Holdings Totals (combines itemized holdings and macro platform accounts)
@@ -75,11 +76,10 @@ export const InvestmentSection = ({
   const totalDematPnl = totalCurrentDematValue - totalInvestedAmount;
   const totalDematPnlPercent = totalInvestedAmount > 0 ? ((totalDematPnl / totalInvestedAmount) * 100) : 0;
 
-  // Retirement investments (excludes macro demat/brokerage accounts to prevent double-counting in grandTotal and section 2)
+  // Retirement investments (EPFO, NPS, Bonds)
   const retirementInvestments = filteredInvestments.filter(inv => !macroDematAccounts.some(ma => ma.id === inv.id));
   const totalRetirementValue = retirementInvestments.reduce((acc, inv) => {
-    const val = inv.values?.[activeFy.id] ?? inv.values?.['fy_25_26'] ?? inv.current_value ?? 0;
-    return acc + Number(val);
+    return acc + getInvestmentValue(inv, activeFy.id);
   }, 0);
 
   const grandTotal = totalCurrentDematValue + totalRetirementValue;
@@ -116,7 +116,7 @@ export const InvestmentSection = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-      {/* SECTION 1: Demat Portfolio (Holdings: Stocks, MFs, ETFs) */}
+      {/* SECTION 1: Demat Portfolio (Holdings: Stocks, MFs, ETFs & Linked Demat Accounts) */}
       <div className="glass-card">
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
@@ -126,7 +126,7 @@ export const InvestmentSection = ({
               Demat Portfolio: Stocks, Mutual Funds & ETFs
             </h2>
             <p style={{ fontSize: '0.8125rem', color: '#94a3b8' }}>
-              Individual holdings with original invested amounts, units, live market NAV/price, and unrealized gains.
+              Linked Demat accounts (Zerodha, ICICI, etc.) and individual stock holdings with live market prices, NAVs and returns.
             </p>
           </div>
 
@@ -164,19 +164,35 @@ export const InvestmentSection = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.35rem',
-                color: '#38bdf8',
-                borderColor: 'rgba(56, 189, 248, 0.35)'
+                borderColor: isRefreshingPrices ? 'rgba(56, 189, 248, 0.5)' : undefined
               }}
-              title="Fetch live NAVs from AMFI and stock market quotes"
+              title="Fetch latest live stock prices from NSE/BSE and mutual fund NAVs from AMFI"
             >
-              <RefreshCw size={14} className={isRefreshingPrices ? 'animate-spin' : ''} />
-              <span>{isRefreshingPrices ? 'Updating Quotes...' : 'Refresh Live Prices'}</span>
+              <RefreshCw
+                size={14}
+                className={isRefreshingPrices ? 'animate-spin' : ''}
+                style={{
+                  animation: isRefreshingPrices ? 'spin 1s linear infinite' : 'none'
+                }}
+              />
+              <span>{isRefreshingPrices ? 'Updating Quotes...' : 'Refresh Prices / NAVs'}</span>
+            </button>
+
+            <button
+              onClick={() => onOpenAddModal('investment', 'Demat / Shares')}
+              className="btn-secondary"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+              title="Add a Demat Account (e.g. Zerodha, ICICI Direct, Groww)"
+            >
+              <PlusCircle size={15} />
+              <span>+ Add Demat A/c</span>
             </button>
 
             <button
               onClick={onOpenAddHolding}
               className="btn-primary"
               style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+              title="Add an individual Stock lot, ETF or Mutual Fund holding"
             >
               <PlusCircle size={15} />
               <span>+ Add Stock / Fund</span>
@@ -184,12 +200,12 @@ export const InvestmentSection = ({
           </div>
         </div>
 
-        {/* Live Refresh Status Message */}
+        {/* Live quote update toast */}
         {refreshMessage && (
           <div style={{
-            padding: '0.6rem 1rem',
+            padding: '0.625rem 1rem',
             background: 'rgba(56, 189, 248, 0.1)',
-            border: '1px solid rgba(56, 189, 248, 0.3)',
+            border: '1px solid rgba(56, 189, 248, 0.25)',
             borderRadius: '8px',
             fontSize: '0.8125rem',
             color: '#38bdf8',
@@ -198,282 +214,311 @@ export const InvestmentSection = ({
             alignItems: 'center',
             gap: '0.5rem'
           }}>
-            <RefreshCw size={14} className={isRefreshingPrices ? 'animate-spin' : ''} />
+            <Sparkles size={16} />
             <span>{refreshMessage}</span>
           </div>
         )}
 
         {/* Demat KPI Summary Cards */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: '1rem',
-          marginBottom: '1.5rem'
-        }}>
-          {/* Total Invested */}
-          <div style={{
-            padding: '1rem',
-            background: 'rgba(255, 255, 255, 0.03)',
-            borderRadius: '10px',
-            border: '1px solid var(--border-glass)'
-          }}>
-            <div style={{ fontSize: '0.6875rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Original Invested Amount
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.75rem' }}>
+          <div className="stat-card" style={{ padding: '1.25rem' }}>
+            <div className="stat-header">
+              <span className="stat-title">Total Invested (Demat)</span>
+              <div className="stat-icon-wrapper purple">
+                <Layers size={18} color="#c084fc" />
+              </div>
             </div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 700, color: '#f8fafc', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
+            <div className="stat-value" style={{ color: '#c084fc' }}>
               {formatINR(totalInvestedAmount, privacyMode)}
             </div>
+            <div className="stat-footer">
+              <span>{dematHoldings.length} stocks/funds + {macroDematAccounts.length} Demat A/c</span>
+            </div>
           </div>
 
-          {/* Current Portfolio Value */}
-          <div style={{
-            padding: '1rem',
-            background: 'rgba(56, 189, 248, 0.06)',
-            borderRadius: '10px',
-            border: '1px solid rgba(56, 189, 248, 0.25)'
-          }}>
-            <div style={{ fontSize: '0.6875rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Current Portfolio Value
+          <div className="stat-card" style={{ padding: '1.25rem' }}>
+            <div className="stat-header">
+              <span className="stat-title">Current Portfolio Value</span>
+              <div className="stat-icon-wrapper blue">
+                <TrendingUp size={18} color="#38bdf8" />
+              </div>
             </div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 700, color: '#38bdf8', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
+            <div className="stat-value" style={{ color: '#38bdf8' }}>
               {formatINR(totalCurrentDematValue, privacyMode)}
             </div>
+            <div className="stat-footer">
+              <span>Valuation in {activeFy.label}</span>
+            </div>
           </div>
 
-          {/* Unrealized Gain / Loss */}
-          <div style={{
-            padding: '1rem',
-            background: totalDematPnl >= 0 ? 'rgba(52, 211, 153, 0.08)' : 'rgba(244, 63, 94, 0.08)',
-            borderRadius: '10px',
-            border: `1px solid ${totalDematPnl >= 0 ? 'rgba(52, 211, 153, 0.25)' : 'rgba(244, 63, 94, 0.25)'}`
-          }}>
-            <div style={{ fontSize: '0.6875rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span>Total Unrealized P&L</span>
-              {totalDematPnl >= 0 ? <ArrowUpRight size={14} color="#34d399" /> : <ArrowDownRight size={14} color="#fb7185" />}
+          <div className="stat-card" style={{ padding: '1.25rem' }}>
+            <div className="stat-header">
+              <span className="stat-title">Overall Unrealized P&L</span>
+              <div className="stat-icon-wrapper" style={{ background: totalDematPnl >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)' }}>
+                {totalDematPnl >= 0 ? <ArrowUpRight size={18} color="#34d399" /> : <ArrowDownRight size={18} color="#f87171" />}
+              </div>
             </div>
-            <div style={{
-              fontSize: '1.35rem',
-              fontWeight: 700,
-              color: totalDematPnl >= 0 ? '#34d399' : '#fb7185',
-              fontFamily: 'var(--font-mono)',
-              marginTop: '4px'
-            }}>
+            <div className="stat-value" style={{ color: totalDematPnl >= 0 ? '#34d399' : '#f87171' }}>
               {totalDematPnl >= 0 ? '+' : ''}{formatINR(totalDematPnl, privacyMode)}
-              <span style={{ fontSize: '0.875rem', marginLeft: '6px', fontWeight: 600 }}>
-                ({totalDematPnlPercent >= 0 ? '+' : ''}{totalDematPnlPercent.toFixed(2)}%)
-              </span>
             </div>
-          </div>
-
-          {/* Total Holdings Count */}
-          <div style={{
-            padding: '1rem',
-            background: 'rgba(168, 85, 247, 0.06)',
-            borderRadius: '10px',
-            border: '1px solid rgba(168, 85, 247, 0.25)'
-          }}>
-            <div style={{ fontSize: '0.6875rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Holdings Count
-            </div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 700, color: '#c084fc', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
-              {dematHoldings.length} Assets
+            <div className="stat-footer" style={{ color: totalDematPnl >= 0 ? '#34d399' : '#f87171' }}>
+              <span>{totalDematPnl >= 0 ? '+' : ''}{totalDematPnlPercent.toFixed(2)}% total return</span>
             </div>
           </div>
         </div>
 
-        {/* Macro Brokerage Platform Banner if detected */}
+        {/* 1A. Linked Brokerage & Demat Accounts Table */}
         {macroDematAccounts.length > 0 && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '0.75rem 1rem',
-            background: 'rgba(56, 189, 248, 0.08)',
-            border: '1px solid rgba(56, 189, 248, 0.25)',
-            borderRadius: '10px',
-            marginBottom: '1.25rem',
-            flexWrap: 'wrap',
-            gap: '0.5rem'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <span className="badge-purple" style={{ fontSize: '11px' }}>Linked Brokerage Platforms</span>
-              {macroDematAccounts.map(a => (
-                <span key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8125rem', color: '#e2e8f0', fontWeight: 600 }}>
-                  {a.institution || a.title}
-                  <button
-                    onClick={() => onEditAsset(a, 'investment')}
-                    className="btn-icon"
-                    title="Edit platform balance & credentials"
-                    style={{ padding: '2px', color: '#94a3b8', width: 22, height: 22 }}
-                  >
-                    <Edit2 size={11} color="#38bdf8" />
-                  </button>
-                </span>
-              ))}
+          <div style={{ marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Layers size={17} color="#38bdf8" />
+                <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#f8fafc' }}>
+                  Linked Demat Accounts ({macroDematAccounts.length})
+                </h3>
+              </div>
+              <div style={{ fontSize: '0.8125rem', color: '#38bdf8', fontWeight: 600 }}>
+                Total Demat Balance: {formatINR(macroDematTotal, privacyMode)}
+              </div>
             </div>
-            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#38bdf8', fontFamily: 'var(--font-mono)' }}>
-              Platform Balance: {formatINR(macroDematTotal, privacyMode)}
+
+            <div className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Platform & Broker</th>
+                    <th>Demat Account / DP ID</th>
+                    <th>Credentials & Portal</th>
+                    <th>{activeFy.label} Value</th>
+                    <th>Notes / Details</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {macroDematAccounts.map((acc) => {
+                    const val = getInvestmentValue(acc, activeFy.id);
+                    return (
+                      <tr key={acc.id}>
+                        <td>
+                          <div>
+                            <div style={{ fontWeight: 600, color: '#f8fafc' }}>{acc.institution}</div>
+                            <span className="badge-purple" style={{ fontSize: '10px', marginTop: '2px', display: 'inline-block' }}>
+                              {acc.category || 'Demat / Shares'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="mono-text">
+                          {maskSensitive(acc.account_identifier, privacyMode)}
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <div>
+                              <div style={{ fontSize: '0.8125rem', color: '#e2e8f0', fontWeight: 500 }}>
+                                {acc.login_user || 'Portal Login'}
+                              </div>
+                              <div style={{ fontSize: '0.6875rem', color: '#94a3b8', letterSpacing: '0.1em' }}>
+                                ••••••••
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => onViewCredentials({
+                                title: acc.institution,
+                                type: acc.category,
+                                username: acc.login_user,
+                                identifier: acc.account_identifier,
+                                password: acc.login_password,
+                                pin_hint: acc.pin_hint
+                              })}
+                              className="btn-icon"
+                              style={{ width: 28, height: 28, borderColor: 'rgba(56, 189, 248, 0.3)' }}
+                              title="View credentials with Master Password"
+                            >
+                              <Eye size={13} color="#38bdf8" />
+                            </button>
+                          </div>
+                        </td>
+                        <td className="mono-text" style={{ fontWeight: 700, color: '#38bdf8', fontSize: '0.9375rem' }}>
+                          {formatINR(val, privacyMode)}
+                        </td>
+                        <td style={{ fontSize: '0.8125rem', color: '#94a3b8' }}>
+                          {acc.notes || '-'}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <div style={{ display: 'inline-flex', gap: '0.35rem' }}>
+                            <button
+                              onClick={() => onEditAsset(acc, 'investment')}
+                              className="btn-icon"
+                              style={{ width: 30, height: 30 }}
+                              title="Edit Demat account details and balance"
+                            >
+                              <Edit2 size={13} color="#38bdf8" />
+                            </button>
+                            <button
+                              onClick={() => onDeleteAsset(
+                                acc.institution,
+                                'Demat Account',
+                                () => {
+                                  const updated = {
+                                    ...data,
+                                    investments: (data.investments || []).filter(i => {
+                                      if (i.id && acc.id) return i.id !== acc.id;
+                                      return i.institution !== acc.institution;
+                                    })
+                                  };
+                                  return updated;
+                                },
+                                acc,
+                                'investment'
+                              )}
+                              className="btn-icon"
+                              style={{ width: 30, height: 30 }}
+                              title="Delete Demat Account"
+                            >
+                              <Trash2 size={13} color="#f87171" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
 
-        {/* Demat Holdings Table */}
-        <div className="table-container">
-          <table className="custom-table">
-            <thead>
-              <tr>
-                <th>Code & Name</th>
-                <th>Category</th>
-                <th style={{ textAlign: 'right' }}>Units / Qty</th>
-                <th style={{ textAlign: 'right' }}>Avg Buy Price</th>
-                <th style={{ textAlign: 'right' }}>Invested Amount</th>
-                <th style={{ textAlign: 'right' }}>Live Price / NAV</th>
-                <th style={{ textAlign: 'right' }}>Current Value</th>
-                <th style={{ textAlign: 'right' }}>Unrealized Gain / Loss</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dematHoldings.length === 0 ? (
+        {/* 1B. Itemized Demat Holdings (Equities & Mutual Funds) */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <TrendingUp size={17} color="#a855f7" />
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#f8fafc' }}>
+                Itemized Stocks, ETFs & Mutual Funds ({dematHoldings.length})
+              </h3>
+            </div>
+            {dematHoldings.length > 0 && (
+              <div style={{ fontSize: '0.8125rem', color: '#a855f7', fontWeight: 600 }}>
+                Holdings Value: {formatINR(totalItemizedCurrentValue, privacyMode)}
+              </div>
+            )}
+          </div>
+
+          <div className="table-container">
+            <table className="custom-table">
+              <thead>
                 <tr>
-                  <td colSpan="9" style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
-                    {macroDematAccounts.length > 0 ? (
-                      <div>
-                        <div style={{ fontWeight: 600, color: '#f8fafc', marginBottom: '0.35rem', fontSize: '0.9375rem' }}>
-                          Linked Demat Account{macroDematAccounts.length > 1 ? 's' : ''} Active ({macroDematAccounts.map(a => a.institution).join(', ')})
-                        </div>
-                        <div style={{ fontSize: '0.8125rem', color: '#38bdf8' }}>
-                          Total Platform Balance: <strong>{formatINR(macroDematTotal, privacyMode)}</strong> • Click <strong>"+ Add Stock / Fund"</strong> above to itemize individual equities & mutual funds.
-                        </div>
-                      </div>
-                    ) : (
-                      <span>No stocks or mutual funds added yet. Click <strong>"+ Add Stock / Fund"</strong> to start tracking!</span>
-                    )}
-                  </td>
+                  <th>Code & Name</th>
+                  <th>Category</th>
+                  <th>Exchange</th>
+                  <th>Units Held</th>
+                  <th>Avg Buy Price</th>
+                  <th>Live Price / NAV</th>
+                  <th>Invested Amount</th>
+                  <th>Current Value</th>
+                  <th>Unrealized P&L</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
-              ) : (
-                dematHoldings.map((h) => {
-                  const member = data.members?.find(m => m.id === h.member_id || matchesMember(h.member_id, m.id, data.members));
-                  const units = Number(h.units || 0);
-                  const currentPrice = Number(h.current_price || 0);
-                  const investedAmount = Number(h.invested_amount || 0);
-                  const avgBuyPrice = Number(h.avg_buy_price) || (units > 0 ? investedAmount / units : 0);
-                  const currentValue = (units > 0 && currentPrice > 0)
-                    ? (units * currentPrice)
-                    : (Number(h.current_value) || investedAmount);
-                  const unrealizedPnl = currentValue - investedAmount;
-                  const unrealizedPnlPercent = investedAmount > 0
-                    ? ((unrealizedPnl / investedAmount) * 100)
-                    : 0;
-                  const isProfit = unrealizedPnl >= 0;
-
-                  return (
-                    <tr key={h.id}>
-                      <td>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <span className="badge-tag" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: '#38bdf8' }}>
-                              {h.symbol}
-                            </span>
-                            <span style={{ fontWeight: 600 }}>{h.name}</span>
+              </thead>
+              <tbody>
+                {dematHoldings.length === 0 ? (
+                  <tr>
+                    <td colSpan="10" style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                      No individual stock lots or mutual funds itemized yet. Click <strong>"+ Add Stock / Fund"</strong> above to track individual equities & live NAVs.
+                    </td>
+                  </tr>
+                ) : (
+                  dematHoldings.map((h) => {
+                    const pnlPositive = (h.unrealized_pnl || 0) >= 0;
+                    return (
+                      <tr key={h.id}>
+                        <td>
+                          <div>
+                            <div style={{ fontWeight: 600, color: '#f8fafc' }}>{h.symbol}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{h.name}</div>
                           </div>
-                          {h.notes && (
-                            <div style={{ fontSize: '0.6875rem', color: '#94a3b8', marginTop: '2px' }}>
-                              {h.notes}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-
-                      <td>
-                        <span className="badge-purple" style={{ fontSize: '10px' }}>
-                          {h.category}
-                        </span>
-                      </td>
-
-                      <td className="mono-text" style={{ textAlign: 'right', fontWeight: 600 }}>
-                        {privacyMode ? '••••' : units.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                      </td>
-
-                      <td className="mono-text" style={{ textAlign: 'right', color: '#cbd5e1' }}>
-                        {formatINR(avgBuyPrice, privacyMode)}
-                      </td>
-
-                      <td className="mono-text" style={{ textAlign: 'right', color: '#f8fafc', fontWeight: 600 }}>
-                        {formatINR(investedAmount, privacyMode)}
-                      </td>
-
-                      <td className="mono-text" style={{ textAlign: 'right', color: '#38bdf8', fontWeight: 600 }}>
-                        {formatINR(currentPrice, privacyMode)}
-                      </td>
-
-                      <td className="mono-text" style={{ textAlign: 'right', fontWeight: 700, color: '#38bdf8', fontSize: '0.9375rem' }}>
-                        {formatINR(currentValue, privacyMode)}
-                      </td>
-
-                      {/* Gain / Loss */}
-                      <td className="mono-text" style={{ textAlign: 'right' }}>
-                        <span style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '2px',
-                          color: isProfit ? '#34d399' : '#fb7185',
-                          fontWeight: 700
-                        }}>
-                          {isProfit ? '+' : ''}{formatINR(unrealizedPnl, privacyMode)}
-                          <span style={{ fontSize: '0.72rem', opacity: 0.9 }}>
-                            ({isProfit ? '+' : ''}{Number(unrealizedPnlPercent || 0).toFixed(2)}%)
+                        </td>
+                        <td>
+                          <span className={h.category === 'Mutual Fund' ? 'badge-blue' : 'badge-purple'} style={{ fontSize: '10px' }}>
+                            {h.category}
                           </span>
-                        </span>
-                      </td>
-
-                      {/* Actions */}
-                      <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'inline-flex', gap: '0.35rem' }}>
-                          <button
-                            onClick={() => onEditHolding(h)}
-                            className="btn-icon"
-                            style={{ width: 28, height: 28 }}
-                            title="Edit holding units, buy cost, or current price"
-                          >
-                            <Edit2 size={13} color="#38bdf8" />
-                          </button>
-                          <button
-                            onClick={() => onDeleteAsset(
-                              h.name,
-                              'Stock / Fund Holding',
-                              () => {
-                                const updated = {
-                                  ...data,
-                                  dematHoldings: (data.dematHoldings || []).filter(item => {
-                                    if (item.id && h.id) return item.id !== h.id;
-                                    if (item.symbol && h.symbol) return item.symbol.toUpperCase().trim() !== h.symbol.toUpperCase().trim();
-                                    return item.name !== h.name;
-                                  })
-                                };
-                                return updated;
-                              },
-                              h,
-                              'dematHolding'
-                            )}
-                            className="btn-icon"
-                            style={{ width: 28, height: 28 }}
-                            title="Delete holding (Requires Master Password)"
-                          >
-                            <Trash2 size={13} color="#f87171" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                        </td>
+                        <td className="mono-text" style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                          {h.exchange}
+                        </td>
+                        <td className="mono-text">
+                          {privacyMode ? '••••' : Number(h.units).toLocaleString('en-IN')}
+                        </td>
+                        <td className="mono-text">
+                          {formatINR(h.avg_buy_price, privacyMode)}
+                        </td>
+                        <td className="mono-text" style={{ fontWeight: 600, color: '#38bdf8' }}>
+                          {formatINR(h.current_price, privacyMode)}
+                        </td>
+                        <td className="mono-text">
+                          {formatINR(h.invested_amount, privacyMode)}
+                        </td>
+                        <td className="mono-text" style={{ fontWeight: 700, color: '#f8fafc' }}>
+                          {formatINR(h.current_value, privacyMode)}
+                        </td>
+                        <td>
+                          <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.25rem',
+                            fontWeight: 600,
+                            fontSize: '0.8125rem',
+                            color: pnlPositive ? '#34d399' : '#f87171'
+                          }}>
+                            {pnlPositive ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
+                            <span>{pnlPositive ? '+' : ''}{formatINR(h.unrealized_pnl, privacyMode)}</span>
+                            <span style={{ fontSize: '0.6875rem', opacity: 0.8 }}>
+                              ({pnlPositive ? '+' : ''}{h.unrealized_pnl_percent?.toFixed(1)}%)
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <div style={{ display: 'inline-flex', gap: '0.35rem' }}>
+                            <button
+                              onClick={() => onEditHolding(h)}
+                              className="btn-icon"
+                              style={{ width: 30, height: 30 }}
+                              title="Edit stock or mutual fund holding"
+                            >
+                              <Edit2 size={13} color="#38bdf8" />
+                            </button>
+                            <button
+                              onClick={() => onDeleteAsset(
+                                `${h.symbol} - ${h.name}`,
+                                'Demat Holding',
+                                () => {
+                                  const updated = {
+                                    ...data,
+                                    dematHoldings: (data.dematHoldings || []).filter(item => item.id !== h.id)
+                                  };
+                                  return updated;
+                                },
+                                h,
+                                'dematHolding'
+                              )}
+                              className="btn-icon"
+                              style={{ width: 30, height: 30 }}
+                              title="Delete Holding"
+                            >
+                              <Trash2 size={13} color="#f87171" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
-      {/* SECTION 2: Provident Funds & Long-Term Retirement Assets (EPFO, NPS, Bonds) */}
+      {/* SECTION 2: Retirement Funds & Fixed Assets (EPFO, NPS, PPF & Bonds) */}
       <div className="glass-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
@@ -482,7 +527,7 @@ export const InvestmentSection = ({
               Retirement Funds & Fixed Assets (EPFO, NPS & Bonds)
             </h2>
             <p style={{ fontSize: '0.8125rem', color: '#94a3b8' }}>
-              Employee Provident Fund (EPFO), NPS Trust (Tier-1 PRAN), and corporate bonds.
+              Employee Provident Fund (EPFO), NPS Trust (Tier-1 PRAN), PPF, and Corporate Bonds.
             </p>
           </div>
 
@@ -518,7 +563,7 @@ export const InvestmentSection = ({
               </button>
             )}
             <button
-              onClick={() => onOpenAddModal('investment')}
+              onClick={() => onOpenAddModal('investment', 'Retirement (EPF)')}
               className="btn-secondary"
               style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
             >
@@ -549,97 +594,97 @@ export const InvestmentSection = ({
                 </tr>
               ) : (
                 retirementInvestments.map((inv) => {
-                  const currentFyVal = inv.values?.[activeFy.id] ?? inv.values?.['fy_25_26'] ?? 0;
+                  const currentFyVal = getInvestmentValue(inv, activeFy.id);
 
                   return (
                     <tr key={inv.id}>
-                    <td>
-                      <div>
-                        <div style={{ fontWeight: 600 }}>{inv.institution}</div>
-                        <span className="badge-purple" style={{ fontSize: '10px', marginTop: '2px', display: 'inline-block' }}>
-                          {inv.category}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="mono-text">
-                      {maskSensitive(inv.account_identifier, privacyMode)}
-                    </td>
-
-                    {/* Protected Credentials & Eye Icon */}
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <td>
                         <div>
-                          <div style={{ fontSize: '0.8125rem', color: '#e2e8f0', fontWeight: 500 }}>
-                            {inv.login_user || 'Portal Login'}
-                          </div>
-                          <div style={{ fontSize: '0.6875rem', color: '#94a3b8', letterSpacing: '0.1em' }}>
-                            ••••••••
-                          </div>
+                          <div style={{ fontWeight: 600 }}>{inv.institution}</div>
+                          <span className="badge-purple" style={{ fontSize: '10px', marginTop: '2px', display: 'inline-block' }}>
+                            {inv.category}
+                          </span>
                         </div>
-                        <button
-                          onClick={() => onViewCredentials({
-                            title: inv.institution,
-                            type: inv.category,
-                            username: inv.login_user,
-                            identifier: inv.account_identifier,
-                            password: inv.login_password,
-                            pin_hint: inv.pin_hint
-                          })}
-                          className="btn-icon"
-                          style={{ width: 28, height: 28, borderColor: 'rgba(192, 132, 252, 0.3)' }}
-                          title="View credentials with Master Password"
-                        >
-                          <Eye size={13} color="#c084fc" />
-                        </button>
-                      </div>
-                    </td>
+                      </td>
+                      <td className="mono-text">
+                        {maskSensitive(inv.account_identifier, privacyMode)}
+                      </td>
 
-                    <td className="mono-text" style={{ fontWeight: 700, color: '#38bdf8', fontSize: '0.9375rem' }}>
-                      {formatINR(currentFyVal, privacyMode)}
-                    </td>
-                    <td style={{ fontSize: '0.8125rem', color: '#94a3b8' }}>
-                      {inv.notes || '-'}
-                    </td>
+                      {/* Protected Credentials & Eye Icon */}
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div>
+                            <div style={{ fontSize: '0.8125rem', color: '#e2e8f0', fontWeight: 500 }}>
+                              {inv.login_user || 'Portal Login'}
+                            </div>
+                            <div style={{ fontSize: '0.6875rem', color: '#94a3b8', letterSpacing: '0.1em' }}>
+                              ••••••••
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => onViewCredentials({
+                              title: inv.institution,
+                              type: inv.category,
+                              username: inv.login_user,
+                              identifier: inv.account_identifier,
+                              password: inv.login_password,
+                              pin_hint: inv.pin_hint
+                            })}
+                            className="btn-icon"
+                            style={{ width: 28, height: 28, borderColor: 'rgba(192, 132, 252, 0.3)' }}
+                            title="View credentials with Master Password"
+                          >
+                            <Eye size={13} color="#c084fc" />
+                          </button>
+                        </div>
+                      </td>
 
-                    {/* Edit & Delete Action Buttons */}
-                    <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', gap: '0.35rem' }}>
-                        <button
-                          onClick={() => onEditAsset(inv, 'investment')}
-                          className="btn-icon"
-                          style={{ width: 30, height: 30 }}
-                          title="Edit investment details and valuations"
-                        >
-                          <Edit2 size={13} color="#38bdf8" />
-                        </button>
-                        <button
-                          onClick={() => onDeleteAsset(
-                            inv.institution,
-                            'Investment',
-                            () => {
-                              const updated = {
-                                ...data,
-                                investments: (data.investments || []).filter(i => {
-                                  if (i.id && inv.id) return i.id !== inv.id;
-                                  return i.institution !== inv.institution;
-                                })
-                              };
-                              return updated;
-                            },
-                            inv,
-                            'investment'
-                          )}
-                          className="btn-icon"
-                          style={{ width: 30, height: 30 }}
-                          title="Delete investment (Requires Master Password)"
-                        >
-                          <Trash2 size={13} color="#f87171" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
+                      <td className="mono-text" style={{ fontWeight: 700, color: '#38bdf8', fontSize: '0.9375rem' }}>
+                        {formatINR(currentFyVal, privacyMode)}
+                      </td>
+                      <td style={{ fontSize: '0.8125rem', color: '#94a3b8' }}>
+                        {inv.notes || '-'}
+                      </td>
+
+                      {/* Edit & Delete Action Buttons */}
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: '0.35rem' }}>
+                          <button
+                            onClick={() => onEditAsset(inv, 'investment')}
+                            className="btn-icon"
+                            style={{ width: 30, height: 30 }}
+                            title="Edit investment details and valuations"
+                          >
+                            <Edit2 size={13} color="#38bdf8" />
+                          </button>
+                          <button
+                            onClick={() => onDeleteAsset(
+                              inv.institution,
+                              'Investment',
+                              () => {
+                                const updated = {
+                                  ...data,
+                                  investments: (data.investments || []).filter(i => {
+                                    if (i.id && inv.id) return i.id !== inv.id;
+                                    return i.institution !== inv.institution;
+                                  })
+                                };
+                                return updated;
+                              },
+                              inv,
+                              'investment'
+                            )}
+                            className="btn-icon"
+                            style={{ width: 30, height: 30 }}
+                            title="Delete Investment"
+                          >
+                            <Trash2 size={13} color="#f87171" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

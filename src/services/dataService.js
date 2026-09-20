@@ -1029,8 +1029,11 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
 
     if (existingInvs && existingInvs.length > 0) {
       const currentIds = new Set(data.investments.map(i => i.id).filter(Boolean));
+      const currentInsts = new Set(data.investments.map(i => (i.institution || '').toLowerCase().trim()).filter(Boolean));
       const staleInvs = existingInvs.filter(ex => {
-        return currentIds.size > 0 && !currentIds.has(ex.id);
+        const idMatch = currentIds.has(ex.id);
+        const instMatch = currentInsts.has((ex.institution || '').toLowerCase().trim());
+        return !idMatch && !instMatch;
       });
       for (const stale of staleInvs) {
         await supabase.from('investments').delete().eq('user_id', userId).eq('id', stale.id);
@@ -1099,8 +1102,14 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
 
       if (existingDemat && existingDemat.length > 0) {
         const currentIds = new Set(data.dematHoldings.map(h => h.id).filter(Boolean));
+        const currentSymbols = new Set(data.dematHoldings.map(h => (h.symbol || '').toUpperCase().trim()).filter(Boolean));
+        const currentNames = new Set(data.dematHoldings.map(h => (h.name || '').toLowerCase().trim()).filter(Boolean));
+
         const staleHoldings = existingDemat.filter(ex => {
-          return currentIds.size > 0 && !currentIds.has(ex.id);
+          const idMatch = currentIds.has(ex.id);
+          const symbolMatch = ex.symbol && currentSymbols.has(ex.symbol.toUpperCase().trim());
+          const nameMatch = ex.name && currentNames.has(ex.name.toLowerCase().trim());
+          return !idMatch && !symbolMatch && !nameMatch;
         });
 
         for (const stale of staleHoldings) {

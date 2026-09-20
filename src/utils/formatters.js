@@ -1,3 +1,23 @@
+// Robust helper to retrieve investment valuation across FY snapshots with graceful previous-year fallback
+export const getInvestmentValue = (inv, fyId) => {
+  if (!inv) return 0;
+  if (inv.values && inv.values[fyId] !== undefined && Number(inv.values[fyId]) > 0) {
+    return Number(inv.values[fyId]);
+  }
+  const fyPriority = ['fy_26_27', 'fy_25_26', 'fy_24_25', 'fy_23_24'];
+  for (const f of fyPriority) {
+    if (inv.values && inv.values[f] !== undefined && Number(inv.values[f]) > 0) {
+      return Number(inv.values[f]);
+    }
+  }
+  if (inv.values && typeof inv.values === 'object') {
+    for (const k of Object.keys(inv.values)) {
+      if (Number(inv.values[k]) > 0) return Number(inv.values[k]);
+    }
+  }
+  return Number(inv.current_value || inv.amount || 0);
+};
+
 // Indian Currency & Masking formatters
 
 export const formatINR = (val, privacyMode = false) => {
@@ -88,7 +108,7 @@ export const calculateFinancialYearTotals = (data, fyId, memberFilterId = 'all')
   let investmentTotal = 0;
   (data.investments || []).forEach(inv => {
     if (!matchesMember(inv.member_id, memberFilterId, members)) return;
-    const val = inv.values?.[fyId] ?? inv.values?.['fy_25_26'] ?? inv.current_value ?? 0;
+    const val = getInvestmentValue(inv, fyId);
     investmentTotal += Number(val || 0);
   });
 
