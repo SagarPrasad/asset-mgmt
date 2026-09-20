@@ -75,8 +75,9 @@ export const InvestmentSection = ({
   const totalDematPnl = totalCurrentDematValue - totalInvestedAmount;
   const totalDematPnlPercent = totalInvestedAmount > 0 ? ((totalDematPnl / totalInvestedAmount) * 100) : 0;
 
-  // Calculate Macro Retirement Total
-  const totalRetirementValue = filteredInvestments.reduce((acc, inv) => {
+  // Retirement investments (excludes macro demat/brokerage accounts to prevent double-counting in grandTotal and section 2)
+  const retirementInvestments = filteredInvestments.filter(inv => !macroDematAccounts.some(ma => ma.id === inv.id));
+  const totalRetirementValue = retirementInvestments.reduce((acc, inv) => {
     const val = inv.values?.[activeFy.id] ?? inv.values?.['fy_25_26'] ?? inv.current_value ?? 0;
     return acc + Number(val);
   }, 0);
@@ -294,11 +295,21 @@ export const InvestmentSection = ({
             flexWrap: 'wrap',
             gap: '0.5rem'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
               <span className="badge-purple" style={{ fontSize: '11px' }}>Linked Brokerage Platforms</span>
-              <span style={{ fontSize: '0.8125rem', color: '#e2e8f0', fontWeight: 600 }}>
-                {macroDematAccounts.map(a => a.institution || a.title).join(', ')}
-              </span>
+              {macroDematAccounts.map(a => (
+                <span key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8125rem', color: '#e2e8f0', fontWeight: 600 }}>
+                  {a.institution || a.title}
+                  <button
+                    onClick={() => onEditAsset(a, 'investment')}
+                    className="btn-icon"
+                    title="Edit platform balance & credentials"
+                    style={{ padding: '2px', color: '#94a3b8', width: 22, height: 22 }}
+                  >
+                    <Edit2 size={11} color="#38bdf8" />
+                  </button>
+                </span>
+              ))}
             </div>
             <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#38bdf8', fontFamily: 'var(--font-mono)' }}>
               Platform Balance: {formatINR(macroDematTotal, privacyMode)}
@@ -530,11 +541,18 @@ export const InvestmentSection = ({
               </tr>
             </thead>
             <tbody>
-              {filteredInvestments.map((inv) => {
-                const currentFyVal = inv.values?.[activeFy.id] ?? inv.values?.['fy_25_26'] ?? 0;
+              {retirementInvestments.length === 0 ? (
+                <tr>
+                  <td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                    No retirement funds or fixed assets added yet. Click <strong>"+ Add Fund"</strong> to track EPFO, NPS, or Bonds.
+                  </td>
+                </tr>
+              ) : (
+                retirementInvestments.map((inv) => {
+                  const currentFyVal = inv.values?.[activeFy.id] ?? inv.values?.['fy_25_26'] ?? 0;
 
-                return (
-                  <tr key={inv.id}>
+                  return (
+                    <tr key={inv.id}>
                     <td>
                       <div>
                         <div style={{ fontWeight: 600 }}>{inv.institution}</div>
@@ -621,7 +639,8 @@ export const InvestmentSection = ({
                     </td>
                   </tr>
                 );
-              })}
+              })
+              )}
             </tbody>
           </table>
         </div>

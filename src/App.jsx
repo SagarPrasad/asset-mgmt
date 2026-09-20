@@ -561,6 +561,8 @@ export function App() {
             onEditAsset={handleOpenEditAsset}
             onDeleteAsset={handleOpenDeleteAsset}
             onViewCredentials={handleOpenViewCredentials}
+            onRefreshCloud={handleRefreshFromCloud}
+            isSyncingCloud={isSyncingCloud}
           />
         )}
 

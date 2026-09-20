@@ -1,5 +1,5 @@
 import React from 'react';
-import { Landmark, Eye, Edit2, Trash2, PlusCircle, KeyRound, Shield } from 'lucide-react';
+import { Landmark, Eye, Edit2, Trash2, PlusCircle, KeyRound, Shield, RefreshCw } from 'lucide-react';
 import { formatINR, maskSensitive, matchesMember } from '../utils/formatters';
 
 export const BankSection = ({
@@ -10,7 +10,9 @@ export const BankSection = ({
   onOpenAddModal,
   onEditAsset,
   onDeleteAsset,
-  onViewCredentials
+  onViewCredentials,
+  onRefreshCloud,
+  isSyncingCloud
 }) => {
   const filteredAccounts = (data.bankAccounts || []).filter(b => {
     return matchesMember(b.member_id, activeMemberId, data.members || []);
@@ -50,6 +52,30 @@ export const BankSection = ({
               +{formatINR(totalInterest, privacyMode)}
             </div>
           </div>
+          {onRefreshCloud && (
+            <button
+              onClick={onRefreshCloud}
+              disabled={isSyncingCloud}
+              className="btn-secondary"
+              title="Fetch latest bank accounts directly from Supabase DB"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                borderColor: isSyncingCloud ? 'rgba(56, 189, 248, 0.5)' : undefined
+              }}
+            >
+              <RefreshCw
+                size={14}
+                color="#38bdf8"
+                className={isSyncingCloud ? 'animate-spin' : ''}
+                style={{
+                  animation: isSyncingCloud ? 'spin 1s linear infinite' : 'none'
+                }}
+              />
+              <span>{isSyncingCloud ? 'Syncing...' : 'Sync Cloud'}</span>
+            </button>
+          )}
           <button
             onClick={() => onOpenAddModal('bank', 'Savings Account')}
             className="btn-secondary"
