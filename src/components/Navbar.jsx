@@ -13,7 +13,8 @@ import {
   Crown,
   ChevronDown,
   FileSpreadsheet,
-  RefreshCw
+  RefreshCw,
+  Camera
 } from 'lucide-react';
 import { exportToExcel, exportToJsonBackup } from '../services/dataService';
 import { isPrimaryHolder } from '../utils/authConfig';
@@ -35,7 +36,8 @@ export const Navbar = ({
   theme,
   setTheme,
   onRefreshCloud,
-  isSyncingCloud = false
+  isSyncingCloud = false,
+  onOpenSnapshots
 }) => {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const exportMenuRef = useRef(null);
@@ -140,6 +142,19 @@ export const Navbar = ({
         {/* Visual Theme Selector */}
         <ThemePicker theme={theme} setTheme={setTheme} />
 
+        {/* Data Snapshots & 5-Point Rollback */}
+        {onOpenSnapshots && (
+          <button
+            onClick={onOpenSnapshots}
+            className="nav-btn-compact"
+            title="Data Snapshots & 5-Point Rollback (stored in binary BLOB format)"
+            style={{ borderColor: 'rgba(192, 132, 252, 0.35)' }}
+          >
+            <Camera size={15} color="#c084fc" />
+            <span style={{ color: '#e9d5ff' }}>Snapshots</span>
+          </button>
+        )}
+
         {/* Consolidated Export & Backup Dropdown Menu */}
         <div ref={exportMenuRef} style={{ position: 'relative' }}>
           <button
@@ -218,6 +233,37 @@ export const Navbar = ({
                   </div>
                 </div>
               </button>
+
+              {onOpenSnapshots && (
+                <button
+                  className="nav-dropdown-item"
+                  onClick={() => {
+                    onOpenSnapshots();
+                    setIsExportOpen(false);
+                  }}
+                >
+                  <div style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 6,
+                    background: 'rgba(192, 132, 252, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}>
+                    <Camera size={16} color="#c084fc" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      5-Point Data Snapshots
+                    </div>
+                    <div style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>
+                      Manage point-in-time BLOB checkpoints
+                    </div>
+                  </div>
+                </button>
+              )}
             </div>
           )}
         </div>

@@ -3,6 +3,7 @@
 const WHITELIST_KEY = 'family_vault_authorized_emails';
 const PASSWORD_VERIFY_KEY = 'family_vault_pwd_verifier';
 const PRIMARY_HOLDER_KEY = 'family_vault_primary_holder_email';
+const PRIMARY_VAULT_OWNER_ID_KEY = 'family_vault_owner_id';
 
 export const DEFAULT_AUTHORIZED_EMAILS = [
   ...(import.meta.env.VITE_AUTHORIZED_EMAILS 
@@ -30,9 +31,25 @@ export const getPrimaryHolderEmail = () => {
 };
 
 /**
+ * Get the Supabase UUID of the primary vault owner (to keep records unified)
+ */
+export const getPrimaryVaultOwnerId = () => {
+  return localStorage.getItem(PRIMARY_VAULT_OWNER_ID_KEY) || null;
+};
+
+/**
+ * Set the Supabase UUID of the primary vault owner
+ */
+export const setPrimaryVaultOwnerId = (id) => {
+  if (id) {
+    localStorage.setItem(PRIMARY_VAULT_OWNER_ID_KEY, id);
+  }
+};
+
+/**
  * Set or transfer the Primary Vault Holder email
  */
-export const setPrimaryHolderEmail = (email) => {
+export const setPrimaryHolderEmail = (email, supabase = null) => {
   if (!email) return;
   const clean = email.trim().toLowerCase();
   localStorage.setItem(PRIMARY_HOLDER_KEY, clean);
@@ -40,7 +57,11 @@ export const setPrimaryHolderEmail = (email) => {
   // Ensure the primary holder is always whitelisted
   const list = getAuthorizedEmails();
   if (!list.includes(clean)) {
-    saveAuthorizedEmails([clean, ...list]);
+    saveAuthorizedEmails([clean, ...list], supabase);
+  }
+
+  if (supabase) {
+    saveVaultSettingToCloud(supabase, 'primary_holder_email', clean).catch(console.warn);
   }
 };
 
@@ -65,6 +86,7 @@ export const isPrimaryHolder = (user) => {
   const list = getAuthorizedEmails().filter(e => !e.includes('demo'));
   if (list.length === 0 || list[0] === userEmail) {
     setPrimaryHolderEmail(userEmail);
+    if (user.id) setPrimaryVaultOwnerId(user.id);
     return true;
   }
 
@@ -83,8 +105,11 @@ export const getAuthorizedEmails = () => {
   return DEFAULT_AUTHORIZED_EMAILS;
 };
 
-export const saveAuthorizedEmails = (emails) => {
+export const saveAuthorizedEmails = (emails, supabase = null) => {
   localStorage.setItem(WHITELIST_KEY, JSON.stringify(emails));
+  if (supabase) {
+    saveVaultSettingToCloud(supabase, 'authorized_emails', emails).catch(console.warn);
+  }
 };
 
 export const isEmailAuthorized = (email) => {
@@ -113,10 +138,60 @@ export const hasMasterPasswordSet = () => {
   return !!localStorage.getItem(PASSWORD_VERIFY_KEY);
 };
 
-export const setMasterPasswordVerification = (verifierToken) => {
+export const setMasterPasswordVerification = (verifierToken, supabase = null) => {
   localStorage.setItem(PASSWORD_VERIFY_KEY, verifierToken);
+  if (supabase) {
+    saveVaultSettingToCloud(supabase, 'password_verifier', verifierToken).catch(console.warn);
+  }
 };
 
 export const getMasterPasswordVerification = () => {
   return localStorage.getItem(PASSWORD_VERIFY_KEY);
+};
+
+/**
+ * Save a single shared setting key/value to Supabase public.vault_settings
+ */
+export const saveVaultSettingToCloud = async (supabase, key, value) => {
+  if (!supabase || !key) return;
+  try {
+    await supabase.from('vault_settings').upsert({
+      key,
+      value,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'key' });
+  } catch (err) {
+    console.warn(`Notice: Failed to sync shared setting "${key}" to cloud:`, err.message);
+  }
+};
+
+/**
+ * Synchronize all shared vault settings from Supabase public.vault_settings
+ * Allows new browsers and family members to automatically receive whitelist & verifier
+ */
+export const syncVaultSettingsFromCloud = async (supabase) => {
+  if (!supabase) return false;
+  try {
+    const { data: rows, error } = await supabase
+      .from('vault_settings')
+      .select('key, value');
+
+    if (!error && Array.isArray(rows)) {
+      rows.forEach(r => {
+        if (r.key === 'authorized_emails' && Array.isArray(r.value)) {
+          localStorage.setItem(WHITELIST_KEY, JSON.stringify(r.value));
+        } else if (r.key === 'primary_holder_email' && typeof r.value === 'string') {
+          localStorage.setItem(PRIMARY_HOLDER_KEY, r.value.trim().toLowerCase());
+        } else if (r.key === 'primary_holder_id' && typeof r.value === 'string') {
+          localStorage.setItem(PRIMARY_VAULT_OWNER_ID_KEY, r.value);
+        } else if (r.key === 'password_verifier' && typeof r.value === 'string') {
+          localStorage.setItem(PASSWORD_VERIFY_KEY, r.value);
+        }
+      });
+      return true;
+    }
+  } catch (err) {
+    console.warn('Notice: Could not sync cloud vault settings (using local settings):', err.message);
+  }
+  return false;
 };

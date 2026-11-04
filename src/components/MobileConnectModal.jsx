@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { X, Smartphone, QrCode, Copy, Check, ShieldCheck, ExternalLink } from 'lucide-react';
 import QRCode from 'qrcode';
+import {
+  getMasterPasswordVerification,
+  getAuthorizedEmails,
+  getPrimaryHolderEmail,
+  getPrimaryVaultOwnerId
+} from '../utils/authConfig';
 
 export const MobileConnectModal = ({
   isOpen,
@@ -16,7 +22,21 @@ export const MobileConnectModal = ({
     if (isOpen && url && anonKey) {
       try {
         const baseUrl = window.location.href.split('#')[0].split('?')[0];
-        const payload = btoa(unescape(encodeURIComponent(JSON.stringify({ u: url, k: anonKey }))));
+        const verifier = getMasterPasswordVerification() || '';
+        const whitelist = getAuthorizedEmails() || [];
+        const primaryEmail = getPrimaryHolderEmail() || '';
+        const ownerId = getPrimaryVaultOwnerId() || '';
+
+        const payloadObj = {
+          u: url,
+          k: anonKey,
+          v: verifier,
+          w: whitelist,
+          p: primaryEmail,
+          o: ownerId
+        };
+
+        const payload = btoa(unescape(encodeURIComponent(JSON.stringify(payloadObj))));
         const fullPairUrl = `${baseUrl}#connect=${payload}`;
         setPairUrl(fullPairUrl);
 

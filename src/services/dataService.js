@@ -15,6 +15,7 @@ import * as XLSX from 'xlsx';
 import { getCleanWorkbookData } from './excelImporter.js';
 
 import { calculateHoldingMetrics } from './marketPriceService.js';
+import { getPrimaryVaultOwnerId, setPrimaryVaultOwnerId, isPrimaryHolder } from '../utils/authConfig.js';
 
 const STORAGE_KEY_PREFIX = 'family_vault_app_data_';
 
@@ -107,17 +108,27 @@ export const loadInitialData = async (user, masterPassword) => {
         { data: liabs },
         { data: dematList }
       ] = await Promise.all([
-        supabase.from('family_members').select('*').eq('user_id', user.id),
-        supabase.from('financial_years').select('*').eq('user_id', user.id),
-        supabase.from('bank_accounts').select('*').eq('user_id', user.id),
-        supabase.from('bank_snapshots').select('*').eq('user_id', user.id),
-        supabase.from('investments').select('*').eq('user_id', user.id),
-        supabase.from('insurance_policies').select('*').eq('user_id', user.id),
-        supabase.from('immovable_properties').select('*').eq('user_id', user.id),
-        supabase.from('movable_assets').select('*').eq('user_id', user.id),
-        supabase.from('liabilities_expenses').select('*').eq('user_id', user.id),
-        supabase.from('demat_holdings').select('*').eq('user_id', user.id)
+        supabase.from('family_members').select('*'),
+        supabase.from('financial_years').select('*'),
+        supabase.from('bank_accounts').select('*'),
+        supabase.from('bank_snapshots').select('*'),
+        supabase.from('investments').select('*'),
+        supabase.from('insurance_policies').select('*'),
+        supabase.from('immovable_properties').select('*'),
+        supabase.from('movable_assets').select('*'),
+        supabase.from('liabilities_expenses').select('*'),
+        supabase.from('demat_holdings').select('*')
       ]);
+
+      // Resolve primary vault owner ID from existing records to keep writes unified
+      const existingOwnerId = (members && members[0]?.user_id) ||
+        (banks && banks[0]?.user_id) ||
+        (dematList && dematList[0]?.user_id);
+      if (existingOwnerId) {
+        setPrimaryVaultOwnerId(existingOwnerId);
+      } else if (user?.id) {
+        setPrimaryVaultOwnerId(user.id);
+      }
 
       const hasDataInSupabase = (members && members.length > 0) ||
         (banks && banks.length > 0) ||
@@ -538,7 +549,7 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
   const supabase = getSupabaseClient();
   if (!supabase || !user || !item) return;
 
-  const userId = user.id;
+  const vaultOwnerId = getPrimaryVaultOwnerId() || user.id;
 
   try {
     switch (assetCategory) {
@@ -546,8 +557,7 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
         const fyLabel = (item.label || item.id || "").trim();
         const { data: fyRows } = await supabase
           .from('financial_years')
-          .select('id, label')
-          .eq('user_id', userId);
+          .select('id, label');
 
         const targetFy = (fyRows || []).find(f => (f.label || "").trim().toLowerCase() === fyLabel.toLowerCase());
         if (targetFy) {
@@ -562,7 +572,6 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
           const { data } = await supabase
             .from('demat_holdings')
             .delete()
-            .eq('user_id', userId)
             .eq('id', item.id)
             .select();
           if (data && data.length > 0) deleted = true;
@@ -571,7 +580,6 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
           await supabase
             .from('demat_holdings')
             .delete()
-            .eq('user_id', userId)
             .eq('symbol', item.symbol);
         }
         break;
@@ -579,12 +587,11 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
       case 'bankAccount': {
         if (item.id && isValidUuid(item.id)) {
           await supabase.from('bank_snapshots').delete().eq('bank_account_id', item.id);
-          await supabase.from('bank_accounts').delete().eq('user_id', userId).eq('id', item.id);
+          await supabase.from('bank_accounts').delete().eq('id', item.id);
         } else if (item.bank_name) {
           const { data: userBanks } = await supabase
             .from('bank_accounts')
-            .select('id, bank_name')
-            .eq('user_id', userId);
+            .select('id, bank_name');
           for (const b of userBanks || []) {
             if (b.bank_name.toLowerCase().trim() === item.bank_name.toLowerCase().trim()) {
               await supabase.from('bank_snapshots').delete().eq('bank_account_id', b.id);
@@ -600,7 +607,6 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
           const { data } = await supabase
             .from('investments')
             .delete()
-            .eq('user_id', userId)
             .eq('id', item.id)
             .select();
           if (data && data.length > 0) deleted = true;
@@ -609,7 +615,6 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
           await supabase
             .from('investments')
             .delete()
-            .eq('user_id', userId)
             .eq('institution', item.institution);
         }
         break;
@@ -620,7 +625,6 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
           const { data } = await supabase
             .from('insurance_policies')
             .delete()
-            .eq('user_id', userId)
             .eq('id', item.id)
             .select();
           if (data && data.length > 0) deleted = true;
@@ -629,7 +633,6 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
           await supabase
             .from('insurance_policies')
             .delete()
-            .eq('user_id', userId)
             .eq('provider', item.provider)
             .eq('plan_name', item.plan_name);
         }
@@ -641,7 +644,6 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
           const { data } = await supabase
             .from('immovable_properties')
             .delete()
-            .eq('user_id', userId)
             .eq('id', item.id)
             .select();
           if (data && data.length > 0) deleted = true;
@@ -650,7 +652,6 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
           await supabase
             .from('immovable_properties')
             .delete()
-            .eq('user_id', userId)
             .eq('premises', item.premises || item.title);
         }
         break;
@@ -661,7 +662,6 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
           const { data } = await supabase
             .from('movable_assets')
             .delete()
-            .eq('user_id', userId)
             .eq('id', item.id)
             .select();
           if (data && data.length > 0) deleted = true;
@@ -670,7 +670,6 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
           await supabase
             .from('movable_assets')
             .delete()
-            .eq('user_id', userId)
             .eq('item_name', item.item_name);
         }
         break;
@@ -682,7 +681,6 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
           const { data } = await supabase
             .from('liabilities_expenses')
             .delete()
-            .eq('user_id', userId)
             .eq('id', item.id)
             .select();
           if (data && data.length > 0) deleted = true;
@@ -691,16 +689,15 @@ export const deleteAssetFromSupabase = async (assetCategory, item, user) => {
           await supabase
             .from('liabilities_expenses')
             .delete()
-            .eq('user_id', userId)
             .eq('title', item.title);
         }
         break;
       }
       case 'member': {
         if (item.id && isValidUuid(item.id)) {
-          await supabase.from('family_members').delete().eq('user_id', userId).eq('id', item.id);
+          await supabase.from('family_members').delete().eq('id', item.id);
         } else if (item.name) {
-          await supabase.from('family_members').delete().eq('user_id', userId).eq('name', item.name);
+          await supabase.from('family_members').delete().eq('name', item.name);
         }
         break;
       }
@@ -719,7 +716,8 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
     throw new Error('Supabase client is not connected.');
   }
 
-  const userId = user?.id || null;
+  const vaultOwnerId = getPrimaryVaultOwnerId() || user?.id || null;
+  const userId = vaultOwnerId;
   const encryptionKey = masterPassword || user?.id || 'local_guest';
 
   // 1. Sync Family Members with encrypted credentials and metadata notes
@@ -766,8 +764,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
   // 2. Sync Financial Years (with automated pruning of deleted years)
   const { data: existingFys } = await supabase
     .from('financial_years')
-    .select('id, label')
-    .eq('user_id', userId);
+    .select('id, label');
 
   if (existingFys && existingFys.length > 0) {
     const activeLabels = new Set((data.financialYears || []).map(f => (f.label || "").trim().toLowerCase()));
@@ -790,8 +787,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
   // 3. Sync Bank Accounts & Snapshots with automated pruning
   const { data: existingBanks } = await supabase
     .from('bank_accounts')
-    .select('id, bank_name, account_number')
-    .eq('user_id', userId);
+    .select('id, bank_name, account_number');
 
   const decryptedExistingBanks = await Promise.all(
     (existingBanks || []).map(async (eb) => ({
@@ -969,8 +965,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
   if (Array.isArray(data.immovableProperties)) {
     const { data: existingProps } = await supabase
       .from('immovable_properties')
-      .select('id, premises, title')
-      .eq('user_id', userId);
+      .select('id, premises, title');
 
     if (existingProps && existingProps.length > 0) {
       const currentIds = new Set(data.immovableProperties.map(p => p.id).filter(Boolean));
@@ -981,7 +976,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
         return !idMatch && !premMatch;
       });
       for (const stale of staleProps) {
-        await supabase.from('immovable_properties').delete().eq('user_id', userId).eq('id', stale.id);
+        await supabase.from('immovable_properties').delete().eq('id', stale.id);
       }
     }
 
@@ -1024,8 +1019,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
   if (Array.isArray(data.investments)) {
     const { data: existingInvs } = await supabase
       .from('investments')
-      .select('id, institution')
-      .eq('user_id', userId);
+      .select('id, institution');
 
     if (existingInvs && existingInvs.length > 0) {
       const currentIds = new Set(data.investments.map(i => i.id).filter(Boolean));
@@ -1036,7 +1030,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
         return !idMatch && !instMatch;
       });
       for (const stale of staleInvs) {
-        await supabase.from('investments').delete().eq('user_id', userId).eq('id', stale.id);
+        await supabase.from('investments').delete().eq('id', stale.id);
       }
     }
 
@@ -1097,8 +1091,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
     try {
       const { data: existingDemat } = await supabase
         .from('demat_holdings')
-        .select('id, symbol, name')
-        .eq('user_id', userId);
+        .select('id, symbol, name');
 
       if (existingDemat && existingDemat.length > 0) {
         const currentIds = new Set(data.dematHoldings.map(h => h.id).filter(Boolean));
@@ -1113,7 +1106,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
         });
 
         for (const stale of staleHoldings) {
-          await supabase.from('demat_holdings').delete().eq('user_id', userId).eq('id', stale.id);
+          await supabase.from('demat_holdings').delete().eq('id', stale.id);
         }
       }
 
@@ -1175,8 +1168,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
   if (Array.isArray(data.insurancePolicies)) {
     const { data: existingIns } = await supabase
       .from('insurance_policies')
-      .select('id, provider, plan_name')
-      .eq('user_id', userId);
+      .select('id, provider, plan_name');
 
     if (existingIns && existingIns.length > 0) {
       const currentIds = new Set(data.insurancePolicies.map(i => i.id).filter(Boolean));
@@ -1187,7 +1179,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
         return !idMatch && !keyMatch;
       });
       for (const stale of staleIns) {
-        await supabase.from('insurance_policies').delete().eq('user_id', userId).eq('id', stale.id);
+        await supabase.from('insurance_policies').delete().eq('id', stale.id);
       }
     }
 
@@ -1220,8 +1212,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
   if (Array.isArray(data.movableAssets)) {
     const { data: existingMovs } = await supabase
       .from('movable_assets')
-      .select('id, item_name')
-      .eq('user_id', userId);
+      .select('id, item_name');
 
     if (existingMovs && existingMovs.length > 0) {
       const currentIds = new Set(data.movableAssets.map(m => m.id).filter(Boolean));
@@ -1232,7 +1223,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
         return !idMatch && !nameMatch;
       });
       for (const stale of staleMovs) {
-        await supabase.from('movable_assets').delete().eq('user_id', userId).eq('id', stale.id);
+        await supabase.from('movable_assets').delete().eq('id', stale.id);
       }
     }
 
@@ -1260,8 +1251,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
   if (Array.isArray(data.liabilitiesAndExpenses)) {
     const { data: existingLiabs } = await supabase
       .from('liabilities_expenses')
-      .select('id, title')
-      .eq('user_id', userId);
+      .select('id, title');
 
     if (existingLiabs && existingLiabs.length > 0) {
       const currentIds = new Set(data.liabilitiesAndExpenses.map(l => l.id).filter(Boolean));
@@ -1272,7 +1262,7 @@ export const syncDataToSupabase = async (data, user, masterPassword) => {
         return !idMatch && !titleMatch;
       });
       for (const stale of staleLiabs) {
-        await supabase.from('liabilities_expenses').delete().eq('user_id', userId).eq('id', stale.id);
+        await supabase.from('liabilities_expenses').delete().eq('id', stale.id);
       }
     }
 
@@ -1493,4 +1483,358 @@ export const importFromJsonBackup = async (jsonString, user, masterPassword) => 
   }
 
   return restoredData;
+};
+
+// ===================================================================================
+// DATA SNAPSHOT & 5-POINT ROLLBACK SYSTEM (BLOB FORMAT & LOCAL SAFEGUARD)
+// ===================================================================================
+
+const SNAPSHOTS_LOCAL_KEY = 'family_vault_snapshots_v1';
+const MAX_SNAPSHOTS = 5;
+
+/**
+ * Convert JSON dataset to PostgreSQL BYTEA binary format (\x...)
+ */
+export const jsonToByteaHex = (dataObj) => {
+  const jsonStr = JSON.stringify(dataObj);
+  const bytes = new TextEncoder().encode(jsonStr);
+  const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  return {
+    hex: `\\x${hex}`,
+    byteSize: bytes.byteLength
+  };
+};
+
+/**
+ * Decode PostgreSQL BYTEA hex string (\x...), Base64, or JSON string back into JS object
+ */
+export const byteaHexToJson = (rawBlob) => {
+  if (!rawBlob) return null;
+  if (typeof rawBlob === 'object' && !Array.isArray(rawBlob)) return rawBlob; // Already parsed
+  if (typeof rawBlob === 'string') {
+    let clean = rawBlob.trim();
+    if (clean.startsWith('\\x')) {
+      clean = clean.slice(2);
+      const matched = clean.match(/.{1,2}/g);
+      if (matched) {
+        const bytes = new Uint8Array(matched.map(byte => parseInt(byte, 16)));
+        const text = new TextDecoder().decode(bytes);
+        return JSON.parse(text);
+      }
+    }
+    if (clean.startsWith('{') || clean.startsWith('[')) {
+      return JSON.parse(clean);
+    }
+    try {
+      const decoded = atob(clean);
+      return JSON.parse(decoded);
+    } catch {}
+  }
+  return null;
+};
+
+/**
+ * Retrieve local cached snapshots (up to 5)
+ */
+export const getLocalSnapshots = () => {
+  try {
+    const raw = localStorage.getItem(SNAPSHOTS_LOCAL_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list.slice(0, MAX_SNAPSHOTS) : [];
+  } catch (e) {
+    console.warn('Failed to parse local snapshots:', e);
+    return [];
+  }
+};
+
+/**
+ * Save snapshots locally, enforcing 5-item rolling limit
+ */
+export const saveLocalSnapshots = (snapshots) => {
+  try {
+    const trimmed = (snapshots || []).slice(0, MAX_SNAPSHOTS);
+    localStorage.setItem(SNAPSHOTS_LOCAL_KEY, JSON.stringify(trimmed));
+    return trimmed;
+  } catch (e) {
+    console.warn('Failed to save local snapshots:', e);
+    return snapshots;
+  }
+};
+
+/**
+ * Load latest snapshots from Supabase cloud (vault_data_snapshots BLOB table) and/or localStorage (returns up to 5)
+ */
+export const loadDataSnapshots = async (user) => {
+  const localList = getLocalSnapshots();
+
+  const supabase = getSupabaseClient();
+  if (supabase && user) {
+    try {
+      const { data: cloudList, error } = await supabase
+        .from('vault_data_snapshots')
+        .select('id, user_id, name, summary, blob_data, byte_size, created_at')
+        .order('created_at', { ascending: false })
+        .limit(MAX_SNAPSHOTS);
+
+      if (!error && Array.isArray(cloudList) && cloudList.length > 0) {
+        const formattedCloud = cloudList.map(item => {
+          let payload = null;
+          try {
+            payload = byteaHexToJson(item.blob_data);
+          } catch (e) {
+            console.warn('Failed to decode snapshot blob for', item.id, e);
+          }
+          return {
+            id: item.id,
+            user_id: item.user_id,
+            name: item.name,
+            summary: item.summary,
+            byte_size: item.byte_size,
+            payload: payload || {},
+            created_at: item.created_at
+          };
+        }).filter(s => s.payload && Object.keys(s.payload).length > 0);
+
+        if (formattedCloud.length > 0) {
+          // Merge cloud & local by id to prevent duplicates
+          const map = new Map();
+          formattedCloud.forEach(s => map.set(s.id, s));
+          localList.forEach(s => {
+            if (!map.has(s.id)) map.set(s.id, s);
+          });
+
+          const merged = Array.from(map.values())
+            .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+            .slice(0, MAX_SNAPSHOTS);
+
+          saveLocalSnapshots(merged);
+          return merged;
+        }
+      }
+    } catch (err) {
+      console.warn('Notice: Could not load cloud snapshots (using local snapshots):', err.message);
+    }
+  }
+
+  return localList;
+};
+
+/**
+ * Capture an immediate point-in-time snapshot of the entire active portfolio in BLOB format
+ */
+export const takeDataSnapshot = async (data, user, customName = '') => {
+  if (!data || typeof data !== 'object') {
+    throw new Error('Cannot create snapshot: Active dataset is invalid.');
+  }
+
+  const hasAnyData =
+    (data.members && data.members.length > 0) ||
+    (data.bankAccounts && data.bankAccounts.length > 0) ||
+    (data.dematHoldings && data.dematHoldings.length > 0) ||
+    (data.investments && data.investments.length > 0) ||
+    (data.immovableProperties && data.immovableProperties.length > 0);
+
+  if (!hasAnyData) {
+    throw new Error('Cannot take snapshot of an empty portfolio. Data safety check prevented blank snapshot.');
+  }
+
+  const now = new Date();
+  const snapId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `snap_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+  const nowStr = now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  const defaultTitle = `Snapshot • ${nowStr} at ${timeStr}`;
+
+  const cleanPayload = {
+    members: data.members || [],
+    financialYears: data.financialYears || [],
+    bankAccounts: data.bankAccounts || [],
+    investments: data.investments || [],
+    dematHoldings: data.dematHoldings || [],
+    insurancePolicies: data.insurancePolicies || [],
+    immovableProperties: data.immovableProperties || [],
+    movableAssets: data.movableAssets || [],
+    liabilitiesAndExpenses: data.liabilitiesAndExpenses || []
+  };
+
+  // Convert payload to BYTEA binary blob format
+  const { hex: byteaBlob, byteSize } = jsonToByteaHex(cleanPayload);
+
+  const summary = {
+    membersCount: (data.members || []).length,
+    bankAccountsCount: (data.bankAccounts || []).length,
+    dematHoldingsCount: (data.dematHoldings || []).length,
+    investmentsCount: (data.investments || []).length,
+    insuranceCount: (data.insurancePolicies || []).length,
+    propertiesCount: (data.immovableProperties || []).length,
+    movablesCount: (data.movableAssets || []).length,
+    liabilitiesCount: (data.liabilitiesAndExpenses || []).length,
+    fyCount: (data.financialYears || []).length,
+    byteSize,
+    timestamp: now.toISOString()
+  };
+
+  const snapshotRecord = {
+    id: snapId,
+    user_id: user?.id || null,
+    name: (customName || defaultTitle).trim(),
+    summary,
+    payload: cleanPayload,
+    byte_size: byteSize,
+    created_at: now.toISOString(),
+    created_by: user?.email || 'Primary Vault Holder'
+  };
+
+  // 1. Save to local storage cache immediately
+  const currentLocal = getLocalSnapshots();
+  const updatedLocal = [snapshotRecord, ...currentLocal.filter(s => s.id !== snapId)].slice(0, MAX_SNAPSHOTS);
+  saveLocalSnapshots(updatedLocal);
+
+  // 2. Save to Supabase public.vault_data_snapshots table in BYTEA blob format
+  const supabase = getSupabaseClient();
+  if (supabase && user) {
+    try {
+      await supabase.from('vault_data_snapshots').insert({
+        id: snapId,
+        user_id: user.id,
+        name: snapshotRecord.name,
+        summary: snapshotRecord.summary,
+        blob_data: byteaBlob,
+        byte_size: byteSize,
+        created_at: snapshotRecord.created_at
+      });
+
+      // Maintain rolling max 5 in Supabase by pruning older snapshots
+      const { data: allSnaps } = await supabase
+        .from('vault_data_snapshots')
+        .select('id, created_at')
+        .order('created_at', { ascending: false });
+
+      if (allSnaps && allSnaps.length > MAX_SNAPSHOTS) {
+        const excessIds = allSnaps.slice(MAX_SNAPSHOTS).map(s => s.id);
+        await supabase.from('vault_data_snapshots').delete().in('id', excessIds);
+      }
+    } catch (cloudErr) {
+      console.warn('Cloud BLOB snapshot insert notice (local snapshot preserved safely):', cloudErr.message);
+    }
+  }
+
+  return { snapshot: snapshotRecord, snapshots: updatedLocal };
+};
+
+/**
+ * Restore dataset to a selected snapshot point-in-time
+ * Includes an automated pre-restore safety snapshot so you can never lose data!
+ */
+export const restoreDataSnapshot = async (snapshot, currentData, user, masterPassword) => {
+  if (!snapshot) {
+    throw new Error('Invalid snapshot. Cannot restore.');
+  }
+
+  // Pre-restore safety backup: take an automated snapshot of current data before overwriting
+  if (currentData) {
+    try {
+      const hasCurrent = (currentData.members?.length > 0) || (currentData.bankAccounts?.length > 0) || (currentData.dematHoldings?.length > 0);
+      if (hasCurrent) {
+        const timeNow = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+        await takeDataSnapshot(
+          currentData,
+          user,
+          `Safety Auto-Backup (Pre-Restore at ${timeNow})`
+        );
+      }
+    } catch (e) {
+      console.warn('Notice: Could not take pre-restore safety snapshot:', e);
+    }
+  }
+
+  let payload = snapshot.payload;
+  if (!payload && snapshot.blob_data) {
+    payload = byteaHexToJson(snapshot.blob_data);
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Could not parse snapshot payload data.');
+  }
+
+  const restoredData = {
+    members: payload.members || [],
+    financialYears: payload.financialYears || [],
+    bankAccounts: payload.bankAccounts || [],
+    investments: payload.investments || [],
+    dematHoldings: payload.dematHoldings || [],
+    insurancePolicies: payload.insurancePolicies || [],
+    immovableProperties: payload.immovableProperties || [],
+    movableAssets: payload.movableAssets || [],
+    liabilitiesAndExpenses: payload.liabilitiesAndExpenses || []
+  };
+
+  // 1. Save restored data locally
+  saveLocalData(restoredData, user);
+
+  // 2. Re-sync restored data cleanly into Supabase tables
+  const supabase = getSupabaseClient();
+  if (supabase && user) {
+    await syncDataToSupabase(restoredData, user, masterPassword);
+  }
+
+  return restoredData;
+};
+
+/**
+ * Delete a specific snapshot from history (Primary Account only)
+ */
+export const deleteDataSnapshot = async (snapshotId, user) => {
+  const currentLocal = getLocalSnapshots();
+  const updatedLocal = currentLocal.filter(s => s.id !== snapshotId);
+  saveLocalSnapshots(updatedLocal);
+
+  const supabase = getSupabaseClient();
+  if (supabase && user) {
+    try {
+      await supabase.from('vault_data_snapshots').delete().eq('id', snapshotId);
+    } catch (e) {
+      console.warn('Notice: Cloud snapshot delete error:', e);
+    }
+  }
+
+  return updatedLocal;
+};
+
+/**
+ * Download a snapshot payload directly to disk as a JSON backup
+ */
+export const downloadSnapshotAsJson = (snapshot) => {
+  let payload = snapshot?.payload;
+  if (!payload && snapshot?.blob_data) {
+    payload = byteaHexToJson(snapshot.blob_data);
+  }
+  if (!payload) return;
+
+  const exportPayload = {
+    app: 'family-asset-vault',
+    version: '1.0.0',
+    type: 'point_in_time_snapshot',
+    format: 'blob_snapshot',
+    snapshot_id: snapshot.id,
+    snapshot_name: snapshot.name,
+    created_at: snapshot.created_at,
+    created_by: snapshot.created_by,
+    summary: snapshot.summary,
+    data: payload
+  };
+
+  const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+    JSON.stringify(exportPayload, null, 2)
+  )}`;
+  const downloadAnchor = document.createElement('a');
+  downloadAnchor.setAttribute('href', jsonString);
+  const dateSafe = (snapshot.created_at || new Date().toISOString()).split('T')[0];
+  downloadAnchor.setAttribute('download', `vault_snapshot_${dateSafe}_${snapshot.id.slice(0, 6)}.json`);
+  document.body.appendChild(downloadAnchor);
+  downloadAnchor.click();
+  downloadAnchor.remove();
 };

@@ -31,13 +31,14 @@ import { ViewSecretModal } from './components/ViewSecretModal';
 import { EditMemberModal } from './components/EditMemberModal';
 import { EditHoldingModal } from './components/EditHoldingModal';
 import { UpcomingRemindersModal } from './components/UpcomingRemindersModal';
+import { SnapshotManagerModal } from './components/SnapshotManagerModal';
 import { LoginScreen } from './components/LoginScreen';
 import { VaultUnlockScreen } from './components/VaultUnlockScreen';
 import { UnauthorizedScreen } from './components/UnauthorizedScreen';
 import { loadInitialData, getFreshSeedData, saveLocalData, syncDataToSupabase, deleteAssetFromSupabase } from './services/dataService';
 import { getSupabaseClient, resetSupabaseClient, signInWithGoogle, signOut } from './lib/supabaseClient';
 import { calculateFinancialYearTotals } from './utils/formatters';
-import { isEmailAuthorized, hasMasterPasswordSet, getMasterPasswordVerification } from './utils/authConfig';
+import { isEmailAuthorized, hasMasterPasswordSet, getMasterPasswordVerification, syncVaultSettingsFromCloud } from './utils/authConfig';
 import { verifyPasswordWithToken } from './utils/crypto';
 
 const SESSION_VAULT_PWD_KEY = 'family_vault_session_master_pwd';
@@ -130,6 +131,7 @@ export function App() {
   });
 
   const [isRemindersModalOpen, setIsRemindersModalOpen] = useState(false);
+  const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false);
   const [pairSuccessNotice, setPairSuccessNotice] = useState('');
 
   // Mobile pairing hash handler & Supabase Auth listener
@@ -144,10 +146,14 @@ export function App() {
           if (decoded.u && decoded.k) {
             localStorage.setItem('family_vault_supabase_url', decoded.u);
             localStorage.setItem('family_vault_supabase_key', decoded.k);
+            if (decoded.v) localStorage.setItem('family_vault_pwd_verifier', decoded.v);
+            if (decoded.w && Array.isArray(decoded.w)) localStorage.setItem('family_vault_authorized_emails', JSON.stringify(decoded.w));
+            if (decoded.p) localStorage.setItem('family_vault_primary_holder_email', decoded.p);
+            if (decoded.o) localStorage.setItem('family_vault_owner_id', decoded.o);
             resetSupabaseClient(decoded.u, decoded.k);
             // Clean up the URL bar immediately for privacy & aesthetics
             window.history.replaceState(null, '', window.location.pathname + window.location.search);
-            setPairSuccessNotice('✅ Device successfully paired! Database connected & ready for login.');
+            setPairSuccessNotice('✅ Device successfully paired! Database connected & family whitelist synced.');
             setTimeout(() => setPairSuccessNotice(''), 6000);
           }
         }
@@ -159,6 +165,9 @@ export function App() {
     const supabase = getSupabaseClient();
     if (supabase) {
       setIsSupabaseConnected(true);
+      // Synchronize shared family whitelist & verifier from cloud settings
+      syncVaultSettingsFromCloud(supabase).catch(console.warn);
+
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
           setUser(session.user);
@@ -467,6 +476,7 @@ export function App() {
           setIsSupabaseConnected={setIsSupabaseConnected}
           masterPassword={masterPassword}
           setMasterPassword={setMasterPassword}
+          onOpenSnapshots={() => setIsSnapshotModalOpen(true)}
         />
       </>
     );
@@ -542,6 +552,7 @@ export function App() {
         setTheme={setTheme}
         onRefreshCloud={handleRefreshFromCloud}
         isSyncingCloud={isSyncingCloud}
+        onOpenSnapshots={() => setIsSnapshotModalOpen(true)}
       />
 
       {/* Sub Navbar with FY & Member Switcher and + Next FY button */}
@@ -700,6 +711,7 @@ export function App() {
         setIsSupabaseConnected={setIsSupabaseConnected}
         masterPassword={masterPassword}
         setMasterPassword={setMasterPassword}
+        onOpenSnapshots={() => setIsSnapshotModalOpen(true)}
       />
 
       {/* Add Asset Modal */}
@@ -795,6 +807,17 @@ export function App() {
         setData={setData}
         user={user}
         masterPassword={masterPassword}
+      />
+
+      {/* Data Snapshots & 5-Point Rollback Modal (Binary BLOB Format) */}
+      <SnapshotManagerModal
+        isOpen={isSnapshotModalOpen}
+        onClose={() => setIsSnapshotModalOpen(false)}
+        data={data}
+        setData={setData}
+        user={user}
+        masterPassword={masterPassword}
+        isSupabaseConnected={isSupabaseConnected}
       />
 
       {/* Cloud Sync Floating Toast Feedback */}

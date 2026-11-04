@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { X, Database, CheckCircle2, CloudUpload, RefreshCw, LogIn, LogOut, Key, ExternalLink, Shield, Users, Plus, Trash2, KeyRound, Smartphone, Download } from 'lucide-react';
-import { resetSupabaseClient } from '../lib/supabaseClient';
+import { X, Database, CheckCircle2, CloudUpload, RefreshCw, LogIn, LogOut, Key, ExternalLink, Shield, Users, Plus, Trash2, KeyRound, Smartphone, Download, Camera } from 'lucide-react';
+import { resetSupabaseClient, getSupabaseClient } from '../lib/supabaseClient';
 import { syncDataToSupabase, loadInitialData, saveLocalData, exportToJsonBackup, importFromJsonBackup } from '../services/dataService';
-import { getAuthorizedEmails, saveAuthorizedEmails, setMasterPasswordVerification, isPrimaryHolder, getPrimaryHolderEmail } from '../utils/authConfig';
+import { getAuthorizedEmails, saveAuthorizedEmails, setMasterPasswordVerification, isPrimaryHolder, getPrimaryHolderEmail, saveVaultSettingToCloud } from '../utils/authConfig';
 import { createPasswordVerifier } from '../utils/crypto';
 import { MobileConnectModal } from './MobileConnectModal';
 
@@ -17,7 +17,8 @@ export const SupabaseModal = ({
   isSupabaseConnected,
   setIsSupabaseConnected,
   masterPassword,
-  setMasterPassword
+  setMasterPassword,
+  onOpenSnapshots
 }) => {
   if (!isOpen) return null;
 
@@ -112,7 +113,12 @@ export const SupabaseModal = ({
     if (clean && !authorizedEmails.includes(clean)) {
       const updated = [...authorizedEmails, clean];
       setAuthorizedEmailsState(updated);
-      saveAuthorizedEmails(updated);
+      const client = getSupabaseClient();
+      saveAuthorizedEmails(updated, client);
+      if (user?.id && client) {
+        saveVaultSettingToCloud(client, 'primary_holder_id', user.id);
+        saveVaultSettingToCloud(client, 'primary_holder_email', primaryHolderEmail || user.email);
+      }
       setNewEmail('');
     }
   };
@@ -133,7 +139,8 @@ export const SupabaseModal = ({
     }
     const updated = authorizedEmails.filter(e => e.toLowerCase().trim() !== clean);
     setAuthorizedEmailsState(updated);
-    saveAuthorizedEmails(updated);
+    const client = getSupabaseClient();
+    saveAuthorizedEmails(updated, client);
   };
 
   const handleUpdateMasterPassword = async (e) => {
@@ -148,7 +155,8 @@ export const SupabaseModal = ({
     }
     try {
       const verifier = await createPasswordVerifier(newMasterPwd);
-      setMasterPasswordVerification(verifier);
+      const client = getSupabaseClient();
+      setMasterPasswordVerification(verifier, client);
       if (setMasterPassword) setMasterPassword(newMasterPwd);
       setPwdUpdateMsg('Master Vault Password updated successfully!');
       setNewMasterPwd('');
@@ -409,6 +417,22 @@ export const SupabaseModal = ({
           </p>
 
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            {onOpenSnapshots && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenSnapshots();
+                }}
+                className="btn-secondary"
+                style={{ fontSize: '0.8125rem', color: '#c084fc', borderColor: 'rgba(192, 132, 252, 0.4)', background: 'rgba(192, 132, 252, 0.1)' }}
+                title="Manage 5-point data snapshots in binary BLOB format"
+              >
+                <Camera size={14} color="#c084fc" />
+                Manage 5-Point BLOB Snapshots
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => exportToJsonBackup(data, user)}

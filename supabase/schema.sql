@@ -179,6 +179,24 @@ CREATE TABLE IF NOT EXISTS public.liabilities_expenses (
     UNIQUE(user_id, title)
 );
 
+-- 11. Vault Snapshots in Binary BLOB Format (Rolling 5-Point Disaster Recovery)
+CREATE TABLE IF NOT EXISTS public.vault_data_snapshots (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    summary JSONB,
+    blob_data BYTEA NOT NULL, -- Binary BLOB payload containing complete portfolio
+    byte_size INTEGER,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 12. Shared Vault Configuration (Whitelist, Verifier Hash, Primary Holder)
+CREATE TABLE IF NOT EXISTS public.vault_settings (
+    key TEXT PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Enable Row Level Security (RLS) on all tables
 ALTER TABLE public.family_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.financial_years ENABLE ROW LEVEL SECURITY;
@@ -190,15 +208,19 @@ ALTER TABLE public.insurance_policies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.immovable_properties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.movable_assets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.liabilities_expenses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.vault_data_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.vault_settings ENABLE ROW LEVEL SECURITY;
 
--- Allow users to read & manage only their own data
-CREATE POLICY "Users can manage their own family members" ON public.family_members FOR ALL USING (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Users can manage their own FYs" ON public.financial_years FOR ALL USING (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Users can manage their own bank accounts" ON public.bank_accounts FOR ALL USING (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Users can manage their own bank snapshots" ON public.bank_snapshots FOR ALL USING (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Users can manage their own investments" ON public.investments FOR ALL USING (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Users can manage their own demat holdings" ON public.demat_holdings FOR ALL USING (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Users can manage their own insurance policies" ON public.insurance_policies FOR ALL USING (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Users can manage their own immovable properties" ON public.immovable_properties FOR ALL USING (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Users can manage their own movable assets" ON public.movable_assets FOR ALL USING (auth.uid() = user_id OR user_id IS NULL);
-CREATE POLICY "Users can manage their own liabilities" ON public.liabilities_expenses FOR ALL USING (auth.uid() = user_id OR user_id IS NULL);
+-- Allow authenticated family users to read & manage the shared family vault
+CREATE POLICY "Family shared access on family_members" ON public.family_members FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Family shared access on financial_years" ON public.financial_years FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Family shared access on bank_accounts" ON public.bank_accounts FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Family shared access on bank_snapshots" ON public.bank_snapshots FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Family shared access on investments" ON public.investments FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Family shared access on demat_holdings" ON public.demat_holdings FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Family shared access on insurance_policies" ON public.insurance_policies FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Family shared access on immovable_properties" ON public.immovable_properties FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Family shared access on movable_assets" ON public.movable_assets FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Family shared access on liabilities_expenses" ON public.liabilities_expenses FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Family shared access on vault_data_snapshots" ON public.vault_data_snapshots FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Family shared access on vault_settings" ON public.vault_settings FOR ALL TO authenticated USING (true) WITH CHECK (true);

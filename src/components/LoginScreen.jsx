@@ -33,6 +33,10 @@ export const LoginScreen = ({
       if (decoded.u && decoded.k) {
         localStorage.setItem('family_vault_supabase_url', decoded.u);
         localStorage.setItem('family_vault_supabase_key', decoded.k);
+        if (decoded.v) localStorage.setItem('family_vault_pwd_verifier', decoded.v);
+        if (decoded.w && Array.isArray(decoded.w)) localStorage.setItem('family_vault_authorized_emails', JSON.stringify(decoded.w));
+        if (decoded.p) localStorage.setItem('family_vault_primary_holder_email', decoded.p);
+        if (decoded.o) localStorage.setItem('family_vault_owner_id', decoded.o);
         resetSupabaseClient(decoded.u, decoded.k);
         window.location.reload();
       } else {
